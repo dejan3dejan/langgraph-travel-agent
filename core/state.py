@@ -1,5 +1,6 @@
 from typing import TypedDict, List, Dict, Optional, Any, Annotated
 import operator
+from .schemas import Restaurant, Activity, Hotel
 
 class AgentState(TypedDict):
     """
@@ -11,10 +12,14 @@ class AgentState(TypedDict):
     # Structured Data
     user_details: Optional[Dict[str, Any]] # {destination, budget, etc.}
     
-    # Parallel Research Data
-    food_data: Optional[str]
-    activity_data: Optional[str]
-    hotel_data: Optional[str]
+    # Parallel Research Data (Will be enriched by Logistics Agent)
+    food_data: Optional[List[Restaurant]]
+    activity_data: Optional[List[Activity]]
+    hotel_data: Optional[List[Hotel]]
+    
+    # Logistics Hub - Global map and calculations
+    # Stores clusters, distance matrices, and transport suggestions
+    logistics: Optional[Dict[str, Any]] 
     
     # Plan State
     draft_itinerary: Optional[str] # The markdown draft
@@ -25,5 +30,4 @@ class AgentState(TypedDict):
     next_node: str # Where to go next
 
     # Metrics & Debugging
-    # Stores logs from each agent: {"agent": "food", "latency": 0.5, "tokens": 150}
     debug_logs: Annotated[List[Dict[str, Any]], operator.add]

@@ -8,6 +8,10 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from .state import AgentState
 from .schemas import UserPreferences, RestaurantList, ActivityList, HotelList, ItineraryCritique
 from .llm import get_llm_for_role
+from .logistics import logistics_agent
+from .logger import get_logger
+
+logger = get_logger(__name__)
 
 # --- HELPER ---
 def log_usage(node_name: str, start_time: float, response: Any = None) -> Dict:
@@ -17,12 +21,12 @@ def log_usage(node_name: str, start_time: float, response: Any = None) -> Dict:
     
     # Try to extract tokens if available
     try:
-        if response and hasattr(response, "usage_metadata"):
-            tokens = response.usage_metadata.get("total_tokens", 0)
-        elif response and hasattr(response, "response_metadata"):
-             # Adapting to different LangChain versions
-             tokens = response.response_metadata.get("token_usage", {}).get("total_tokens", 0)
-    except:
+        if response:
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                tokens = response.usage_metadata.get("total_tokens", 0)
+            elif hasattr(response, "response_metadata") and response.response_metadata:
+                tokens = response.response_metadata.get("token_usage", {}).get("total_tokens", 0)
+    except Exception:
         pass
         
     return {
@@ -103,7 +107,7 @@ def interviewer_node(state: AgentState) -> Dict:
                 user_details["start_location"] = "the user's current location"
                 
         except Exception as e:
-            print(f"Extraction Failed: {e}")
+            logger.error(f"Extraction Failed: {e}")
             user_details = {
                 "destination": "Paris", 
                 "start_location": "the user's current location", 
@@ -119,7 +123,7 @@ def interviewer_node(state: AgentState) -> Dict:
         new_dest = user_details.get("destination")
         
         if old_dest and old_dest != new_dest:
-            print(f"   [Context] Destination changed from {old_dest} to {new_dest}. Resetting research data.")
+            logger.info(f"Destination changed from {old_dest} to {new_dest}. Resetting research data.")
             return {
                 "user_details": user_details,
                 "food_data": None,
@@ -151,36 +155,36 @@ def research_food_node(state: AgentState) -> Dict:
     details = state.get("user_details", {})
     dest = details.get("destination")
     constraints = details.get('constraints', '')
-    print(f"   [Food Agent] Searching restaurants in {dest}...")
+    logger.info(f"Searching restaurants in {dest}...")
     
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
     extraction_llm = get_llm_for_role("extraction")
     
-    # STEP 1: Grounded search (plain text) - koristi Google Search
     search_prompt = f"""
     Use Google Search to find 3 REAL, currently operating restaurants in {dest}.
     
-    For each restaurant you MUST provide:
-    - Exact name
-    - Full street address (e.g. "123 Main Street, {dest}")
-    - Neighborhood or district name
-    - Official website URL (if available)
-    - Type of cuisine  
-    - Price level ($, $$, $$$, $$$$)
-    - Google rating (e.g., 4.5)
-    - Why it fits: {details.get('interests')} with budget {details.get('budget')}
+    STRICT REQUIREMENTS (Do NOT skip any):
+    1. EXACT NAME: The official restaurant name as it appears on Google Maps.
+    2. FULL STREET ADDRESS: Must include street number, street name, and city.
+       - GOOD: "87 Borough High Street, London SE1 1NH"
+       - BAD: "Near Tower Bridge" or "Shoreditch area"
+    3. NEIGHBORHOOD: The district/area name (e.g., "Shoreditch", "Borough Market").
+    4. WEBSITE: Official website URL. Write "N/A" if not found.
+    5. CUISINE: Type of food (e.g., "British Pie & Mash", "Italian", "Street Food").
+    6. PRICE LEVEL: $, $$, $$$, or $$$$.
+    7. GOOGLE RATING: e.g., 4.5
+    8. WHY IT FITS: How it matches {details.get('interests')} and {details.get('budget')} budget.
     
     Constraints to respect: {constraints}
     
-    IMPORTANT: Only include restaurants you found via search. Do not make up names or addresses.
+    CRITICAL: If you cannot find a FULL STREET ADDRESS for a restaurant, DO NOT include it.
+    Only return restaurants with verified, complete addresses.
     """
     
     try:
-        # Step 1: Get grounded results as plain text
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
         grounded_text = grounded_response.content
         
-        # STEP 2: Parse into structure using extraction_llm (no grounding needed)
         extraction_prompt = f"""
         Extract restaurant information from this text into structured format.
         Make sure to extract the full address and website if mentioned.
@@ -189,12 +193,12 @@ def research_food_node(state: AgentState) -> Dict:
         """
         structured_extractor = extraction_llm.with_structured_output(RestaurantList)
         result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
-        data = result.model_dump_json()
+        data = result.items
         
         log = log_usage("research_food", t0, grounded_response)
     except Exception as e:
-        print(f"   [Food Agent] Error: {e}")
-        data = "[]"
+        logger.error(f"Food Agent Error: {e}")
+        data = []
         log = log_usage("research_food", t0)
         
     return {"food_data": data, "debug_logs": [log]}
@@ -204,36 +208,36 @@ def research_activity_node(state: AgentState) -> Dict:
     details = state.get("user_details", {})
     dest = details.get("destination")
     constraints = details.get('constraints', '')
-    print(f"   [Activity Agent] Searching activities in {dest}...")
+    logger.info(f"Searching activities in {dest}...")
     
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
     extraction_llm = get_llm_for_role("extraction")
     
-    # STEP 1: Grounded search (plain text)
     search_prompt = f"""
     Use Google Search to find 3 REAL activities/attractions in {dest}.
     
-    For each activity you MUST provide:
-    - Exact name
-    - Full street address or specific location (e.g. "Old Town Square, {dest}")
-    - Neighborhood or district name
-    - Official website or booking URL (if available)
-    - Type (Museum, Park, Tour, etc.)
-    - Estimated duration to spend there
-    - Brief description
+    STRICT REQUIREMENTS (Do NOT skip any):
+    1. EXACT NAME: Official name as it appears on Google.
+    2. FULL ADDRESS: Street address or well-known landmark location.
+       - GOOD: "Tower of London, St Katharine's & Wapping, London EC3N 4AB"
+       - BAD: "East London" or "City Center"
+    3. NEIGHBORHOOD: District name (e.g., "City of London", "Westminster").
+    4. WEBSITE: Official website or booking URL. Write "N/A" if not found.
+    5. TYPE: Museum, Park, Historic Site, Tour, Market, etc.
+    6. DURATION: How long to spend there (e.g., "2-3 hours").
+    7. DESCRIPTION: 1-2 sentences about what makes it special.
     
+    User interests: {details.get('interests')}
     Trip duration: {details.get('duration')}
-    Constraints to respect: {constraints}
+    Constraints: {constraints}
     
-    IMPORTANT: Only include activities you found via search. Do not make up names or addresses.
+    CRITICAL: Only include attractions with verifiable addresses. No vague locations.
     """
     
     try:
-        # Step 1: Get grounded results
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
         grounded_text = grounded_response.content
         
-        # STEP 2: Parse into structure
         extraction_prompt = f"""
         Extract activity information from this text into structured format.
         Make sure to extract the full address and website if mentioned.
@@ -242,12 +246,12 @@ def research_activity_node(state: AgentState) -> Dict:
         """
         structured_extractor = extraction_llm.with_structured_output(ActivityList)
         result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
-        data = result.model_dump_json()
+        data = result.items
         
         log = log_usage("research_activity", t0, grounded_response)
     except Exception as e:
-        print(f"   [Activity Agent] Error: {e}")
-        data = "[]"
+        logger.error(f"Activity Agent Error: {e}")
+        data = []
         log = log_usage("research_activity", t0)
         
     return {"activity_data": data, "debug_logs": [log]}
@@ -257,35 +261,34 @@ def research_hotel_node(state: AgentState) -> Dict:
     details = state.get("user_details", {})
     dest = details.get("destination")
     constraints = details.get('constraints', '')
-    print(f"   [Hotel Agent] Searching hotels in {dest}...")
+    logger.info(f"Searching hotels in {dest}...")
     
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
     extraction_llm = get_llm_for_role("extraction")
     
-    # STEP 1: Grounded search (plain text)
     search_prompt = f"""
     Use Google Search to find 3 REAL hotels in {dest}.
     
-    For each hotel you MUST provide:
-    - Exact hotel name
-    - Full street address (e.g. "123 Main Street, {dest}")
-    - Neighborhood or district name
-    - Official website or booking URL (if available)
-    - Price range per night
-    - Key advantages (pros)
+    STRICT REQUIREMENTS (Do NOT skip any):
+    1. EXACT NAME: Official hotel name as listed on booking sites.
+    2. FULL STREET ADDRESS: Must include street number and name.
+       - GOOD: "22 Whitechapel High St, London E1 7PW"
+       - BAD: "Central London" or "Near the station"
+    3. NEIGHBORHOOD: District name (e.g., "Bloomsbury", "Covent Garden").
+    4. WEBSITE: Official website or Booking.com link. Write "N/A" if not found.
+    5. PRICE RANGE: Approximate price per night (e.g., "$120-180/night").
+    6. PROS: 2-3 key advantages (location, amenities, value).
     
     Budget level: {details.get('budget')}
-    Constraints to respect: {constraints}
+    Constraints: {constraints}
     
-    IMPORTANT: Only include hotels you found via search. Do not make up names or addresses.
+    CRITICAL: Only include hotels with verified, complete street addresses.
     """
     
     try:
-        # Step 1: Get grounded results
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
         grounded_text = grounded_response.content
         
-        # STEP 2: Parse into structure
         extraction_prompt = f"""
         Extract hotel information from this text into structured format.
         Make sure to extract the full address and website if mentioned.
@@ -294,12 +297,12 @@ def research_hotel_node(state: AgentState) -> Dict:
         """
         structured_extractor = extraction_llm.with_structured_output(HotelList)
         result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
-        data = result.model_dump_json()
+        data = result.items
         
         log = log_usage("research_hotel", t0, grounded_response)
     except Exception as e:
-        print(f"   [Hotel Agent] Error: {e}")
-        data = "[]"
+        logger.error(f"Hotel Agent Error: {e}")
+        data = []
         log = log_usage("research_hotel", t0)
         
     return {"hotel_data": data, "debug_logs": [log]}
@@ -308,41 +311,92 @@ def research_hotel_node(state: AgentState) -> Dict:
 
 def compiler_node(state: AgentState) -> Dict:
     t0 = time.time()
-    print("   [Compiler] Writing draft...")
+    logger.info("Writing itinerary draft...")
     user_details = state.get("user_details", {})
+    
+    # Pre-format data for the LLM
+    food_data = state.get("food_data") or []
+    activity_data = state.get("activity_data") or []
+    hotel_data = state.get("hotel_data") or []
+    logistics = state.get("logistics") or {}
+    
+    # Extract model data to dicts for JSON serialization
+    food_json = json.dumps([f.model_dump() if hasattr(f, 'model_dump') else f for f in food_data], indent=2, ensure_ascii=False)
+    activity_json = json.dumps([a.model_dump() if hasattr(a, 'model_dump') else a for a in activity_data], indent=2, ensure_ascii=False)
+    hotel_json = json.dumps([h.model_dump() if hasattr(h, 'model_dump') else h for h in hotel_data], indent=2, ensure_ascii=False)
+    logistics_json = json.dumps(logistics, indent=2, ensure_ascii=False)
     
     chat_llm = get_llm_for_role("compiler")
     
     prompt = f"""
-The traveler is departing from {user_details.get('start_location', 'their home location')} and heading to {user_details.get('destination')}.
+You are writing a practical travel itinerary for a trip to {user_details.get('destination')}.
 
-CRITICAL: You MUST include a clear "Getting There" or "Arrival & Transport" section explaining realistic travel options from the starting location (flights, train, bus, driving – no hallucinations).
+TRAVELER INFO:
+- Departing from: {user_details.get('start_location', 'their home location')}
+- Duration: {user_details.get('duration')}
+- Budget: {user_details.get('budget')}
+- Interests: {user_details.get('interests')}
 
-Duration: {user_details.get('duration')}
-Budget: {user_details.get('budget')}
-Interests: {user_details.get('interests')}
+AVAILABLE RESEARCH DATA:
+- Restaurants: {food_json}
+- Activities: {activity_json}
+- Hotels: {hotel_json}
 
-Available Data:
-- Restaurants: {state.get('food_data')}
-- Activities: {state.get('activity_data')}
-- Hotels: {state.get('hotel_data')}
+LOGISTICS & SPATIAL DATA (USE THIS!):
+{logistics_json}
 
-Full user request for context: {json.dumps(user_details, ensure_ascii=False)}
+Each item above has a "zone" field that tells you how far it is from the hotel:
+- "Near Hotel (<2km)" = Walking distance (10-20 min walk)
+- "Remote (X.Xkm)" = Requires transport (tube/bus/taxi)
 
-TASK: Create a beautiful, practical Markdown itinerary with the following structure:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL RULES FOR THE ITINERARY:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# {user_details.get('duration', 'Your')} Trip from {user_details.get('start_location', 'Home')} to {user_details.get('destination')}
+1. GROUP BY PROXIMITY: Combine activities that are in the SAME ZONE into the same day/half-day.
+   Example: If Tower of London and a restaurant are both "Remote (5.2km)", schedule them together.
+
+2. ALWAYS MENTION DISTANCE: When you mention a place, add how far it is.
+   - GOOD: "Walk to The British Museum (0.8km from hotel, ~10 min walk)"
+   - BAD: "Visit The British Museum"
+
+3. BE SPECIFIC: Use the exact names, addresses, and websites from the research data.
+   - GOOD: "Dinner at Dishoom King's Cross (5 Stable St, London N1C 4AB) - Indian, $$"
+   - BAD: "Find a nice Indian restaurant nearby"
+
+4. TRANSPORT TIPS: For "Remote" locations, suggest specific transport.
+   - Example: "Take the Central Line from Holborn to Tower Hill station (15 min)"
+
+5. INCLUDE A "Getting There" SECTION: Realistic travel options from {user_details.get('start_location')}.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OUTPUT FORMAT (Markdown):
+
+# {user_details.get('duration', 'Your')} Trip to {user_details.get('destination')}
 
 ## Overview
-## Recommended Accommodation
-## Day-by-Day Itinerary
-### Day 1: [Theme]
-...
-## Getting There & Logistics
-(Include transport from {user_details.get('start_location')} – this section is REQUIRED)
-## Tips & Final Notes
+(Brief summary + travel style based on budget)
 
-Output ONLY the Markdown itinerary. No additional text.
+## Recommended Accommodation
+(Pick ONE hotel from the list, explain why)
+
+## Day-by-Day Itinerary
+
+    ### Day 1: [Theme based on zone/area]
+    - **Morning:** [Activity Name] ([distance from hotel], [walk/transport tip])
+    - **Lunch:** [Restaurant Name] ([address], [cuisine], [price])
+    - **Afternoon:** [Activity Name]
+    - **Evening:** [Dinner spot]
+    
+    [... Follow this structure for Day 2, Day 3, etc. ...]
+
+## Getting There & Transport
+(How to get from {user_details.get('start_location')} to {user_details.get('destination')})
+
+## Tips & Budget Notes
+
+Output ONLY the Markdown itinerary. No preamble or commentary.
 """
     response = chat_llm.invoke([SystemMessage(content="You are a Travel Editor."), HumanMessage(content=prompt)])
     draft = response.content
@@ -359,7 +413,7 @@ def critic_node(state: AgentState) -> Dict:
     t0 = time.time()
     draft = state.get("draft_itinerary", "")
     user_details = state.get("user_details", {})
-    print("   [Critic] Reviewing draft...")
+    logger.info("Reviewing itinerary draft...")
     
     extraction_llm = get_llm_for_role("extraction")
     structured_critic = extraction_llm.with_structured_output(ItineraryCritique)
@@ -393,7 +447,7 @@ def critic_node(state: AgentState) -> Dict:
             next_node = "compiler" # Just a rewrite needed
             
     except Exception as e:
-        print(f"   [Critic] Error: {e}")
+        logger.error(f"Critic Error: {e}")
         critique = {"approved": True, "feedback": "Auto Approved (Critic Error)", "score": 10, "missing_data": []}
         next_node = "approved"
         log = log_usage("critic", t0)
@@ -412,6 +466,7 @@ workflow.add_node("interviewer", interviewer_node)
 workflow.add_node("research_food", research_food_node)
 workflow.add_node("research_activity", research_activity_node)
 workflow.add_node("research_hotel", research_hotel_node)
+workflow.add_node("logistics", logistics_agent)
 workflow.add_node("compiler", compiler_node)
 workflow.add_node("critic", critic_node)
 
@@ -457,9 +512,10 @@ def router(state: AgentState):
     return END
 
 workflow.add_conditional_edges("interviewer", router)
-workflow.add_edge("research_food", "compiler")
-workflow.add_edge("research_activity", "compiler")
-workflow.add_edge("research_hotel", "compiler")
+workflow.add_edge("research_food", "logistics")
+workflow.add_edge("research_activity", "logistics")
+workflow.add_edge("research_hotel", "logistics")
+workflow.add_edge("logistics", "compiler")
 workflow.add_conditional_edges("compiler", router)
 workflow.add_conditional_edges("critic", router)
 

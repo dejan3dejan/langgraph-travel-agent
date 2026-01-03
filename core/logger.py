@@ -28,9 +28,7 @@ logger.add(
     retention="1 week"
 )
 
-# Create logger instance for import
-travel_logger = logger
-
+# Create logger instance for import (optional, most use get_logger)
 def get_logger(name: str):
     """Get logger instance for specific module."""
     return logger.bind(module=name)

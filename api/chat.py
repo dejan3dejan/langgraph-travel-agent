@@ -5,8 +5,6 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 import uuid
-import sys
-import os
 
 from core.logger import get_logger
 from sqlalchemy.orm import Session

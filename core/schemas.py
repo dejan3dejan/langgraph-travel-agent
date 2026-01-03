@@ -9,8 +9,15 @@ class UserPreferences(BaseModel):
     interests: str = Field(description="Comma-separated interests")
     constraints: Optional[str] = Field(description="Specific constraints (e.g., 'pet friendly', 'smoking allowed', 'no car', 'party friendly')")
     focus: List[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
-    
-class Restaurant(BaseModel):
+
+class LogisticsBase(BaseModel):
+    """Base class for all items that need geocoding."""
+    lat: Optional[float] = Field(None, description="Latitude coordinate")
+    lon: Optional[float] = Field(None, description="Longitude coordinate")
+    geocoding_status: Optional[Literal["exact", "neighborhood", "failed"]] = Field(None, description="Precision of geocoding")
+    zone: Optional[str] = Field(None, description="Logistical zone (e.g., 'Near Hotel', 'Remote', 'Cluster A')")
+
+class Restaurant(LogisticsBase):
     name: str = Field(description="Name of the restaurant")
     address: str = Field(description="Full street address and city. Essential for logistics.")
     neighborhood: Optional[str] = Field(None, description="Neighborhood or district name")
@@ -23,7 +30,7 @@ class Restaurant(BaseModel):
 class RestaurantList(BaseModel):
     items: List[Restaurant]
 
-class Activity(BaseModel):
+class Activity(LogisticsBase):
     name: str = Field(description="Name of the activity")
     address: str = Field(description="Full street address or specific location")
     neighborhood: Optional[str] = Field(None, description="Neighborhood or district name")
@@ -35,7 +42,7 @@ class Activity(BaseModel):
 class ActivityList(BaseModel):
     items: List[Activity]
 
-class Hotel(BaseModel):
+class Hotel(LogisticsBase):
     name: str = Field(description="Name of the hotel")
     address: str = Field(description="Full street address. Essential for logistics.")
     neighborhood: str = Field(description="Neighborhood location")
@@ -54,4 +61,3 @@ class ItineraryCritique(BaseModel):
         default_factory=list, 
         description="List of categories that need more (or better) research data."
     )
-

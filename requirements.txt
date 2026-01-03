@@ -11,3 +11,4 @@ langgraph
 langchain-google-genai
 rich
 datasets
+geopy
