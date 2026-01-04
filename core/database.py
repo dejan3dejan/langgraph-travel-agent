@@ -3,7 +3,7 @@ Database configuration and session management.
 """
 import os
 import uuid
-from sqlalchemy import create_engine, Column, String, JSON, DateTime, Text, ForeignKey
+from sqlalchemy import create_engine, Column, String, JSON, DateTime, Text, ForeignKey, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session as DBSession
 from datetime import datetime
@@ -52,6 +52,16 @@ class Trip(Base):
     # The Full Result
     itinerary_text = Column(Text) 
     
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class GeocodingCache(Base):
+    """Cache for geocoding results."""
+    __tablename__ = "geocoding_cache"
+    
+    query = Column(String, primary_key=True, index=True)
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
+    status = Column(String)  # "exact", "neighborhood", "failed"
     created_at = Column(DateTime, default=datetime.utcnow)
 
 def init_db():

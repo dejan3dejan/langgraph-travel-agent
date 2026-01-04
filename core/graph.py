@@ -7,13 +7,13 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from .state import AgentState
 from .schemas import UserPreferences, RestaurantList, ActivityList, HotelList, ItineraryCritique
-from .llm import get_llm_for_role
+from .llm import get_llm_for_role, get_llm_with_tools, USE_REACT_AGENT
 from .logistics import logistics_agent
+from .tools import group_places_by_zone, optimize_day_route, TRAVEL_TOOLS
 from .logger import get_logger
 
 logger = get_logger(__name__)
 
-# --- HELPER ---
 def log_usage(node_name: str, start_time: float, response: Any = None) -> Dict:
     """Creates a log entry for usage metrics."""
     duration = time.time() - start_time
@@ -36,11 +36,12 @@ def log_usage(node_name: str, start_time: float, response: Any = None) -> Dict:
         "timestamp": time.strftime("%H:%M:%S")
     }
 
-# --- NODES ---
-
 def interviewer_node(state: AgentState) -> Dict:
     t0 = time.time()
     messages = state.get("messages", [])
+    interview_count = state.get("interview_count", 0) + 1
+    
+    MAX_INTERVIEW_ITERATIONS = 4  # Force extraction after this many attempts
     
     system_prompt = """
     You are 'Atlas', a charming and intelligent Travel Consultant.
@@ -50,37 +51,54 @@ def interviewer_node(state: AgentState) -> Dict:
     Review the ENTIRE conversation history. 
     - Did the user mention their Budget 3 messages ago? -> IT COUNTS.
     - Did the user say "Surprise me"? -> That means Interests = "General Sightseeing".
+    - Did the user mention a region like "Wisconsin" or "Texas"? -> ACCEPT IT as destination.
+    - Did the user mention dates like "March 13th to March 17th"? -> Calculate duration from dates.
     
-    PHASE 2: VERIFICATION
-    Check if we have the minimum requirements:
-    1. Destination (City, State, or Country is OK)
-    2. Duration (How many days?)
-    3. Budget (Amount or Level)
+    PHASE 2: SMART DEFAULTS
+    If some info is missing but you have enough context, USE SMART DEFAULTS:
+    - No budget mentioned but trip details given? -> Assume "Medium budget"
+    - No duration but dates given? -> Calculate from dates
+    - No specific interests? -> Default to "General Sightseeing"
+    
+    PHASE 3: VERIFICATION
+    Check if we have the MINIMUM requirements:
+    1. Destination (City, State, Region, or Country - ANY is OK!)
+    2. Duration (Days OR date range)
+    3. Budget (Amount, Level, OR assume Medium if trip is detailed)
 
-    PHASE 3: ACTION
-    - If ALL 3 (Dest, Duration, Budget) are found -> OUTPUT ONLY: "PLANNING_STARTED"
-    - If ANY are missing -> Ask for them politely and charmingly.
+    PHASE 4: ACTION
+    - If you have Destination + Duration (budget can be assumed) -> OUTPUT ONLY: "PLANNING_STARTED"
+    - If ONLY destination is truly missing -> Ask for it politely.
     
     CRITICAL RULES:
     - NEVER say "I cannot do this". You are an expert planner.
-    - If Destination is a region (e.g., "Texas"), ACCEPT IT. Do not ask for specific cities.
-    - ONLY output "PLANNING_STARTED" when you have the data.
+    - If Destination is a region (e.g., "Texas", "Wisconsin"), ACCEPT IT. Do not ask for specific cities.
+    - Be AGGRESSIVE about starting - users want plans, not interviews!
+    - If you have destination and ANY hint of duration -> START PLANNING.
     """
     
     lc_messages = [SystemMessage(content=system_prompt)]
     for m in messages:
         if m["role"] == "user": lc_messages.append(HumanMessage(content=m["content"]))
         else: lc_messages.append(AIMessage(content=m["content"]))
+    
     # Get models for role
     chat_llm = get_llm_for_role("interviewer")
     extraction_llm = get_llm_for_role("extraction")
-
-    response = chat_llm.invoke(lc_messages)
-    content = response.content
     
-    log = log_usage("interviewer", t0, response)
+    # Check if we should force extraction due to max iterations
+    force_extraction = interview_count >= MAX_INTERVIEW_ITERATIONS
     
-    if "PLANNING_STARTED" in content.upper():
+    if force_extraction:
+        logger.warning(f"Interviewer hit max iterations ({MAX_INTERVIEW_ITERATIONS}). Forcing extraction...")
+        content = "PLANNING_STARTED"  # Force it
+    else:
+        response = chat_llm.invoke(lc_messages)
+        content = response.content
+    
+    log = log_usage("interviewer", t0, response if not force_extraction else None)
+    
+    if "PLANNING_STARTED" in content.upper() or force_extraction:
         # Structured Extraction
         structured_llm = extraction_llm.with_structured_output(UserPreferences)
         
@@ -117,7 +135,6 @@ def interviewer_node(state: AgentState) -> Dict:
                 "focus": []
             }
 
-        # --- CONTEXT RESET LOGIC ---
         old_details = state.get("user_details", {})
         old_dest = old_details.get("destination")
         new_dest = user_details.get("destination")
@@ -131,6 +148,7 @@ def interviewer_node(state: AgentState) -> Dict:
                 "hotel_data": None,
                 "draft_itinerary": None,
                 "iteration_count": 0,
+                "interview_count": 0,  # Reset interview counter
                 "next_node": "research",
                 "messages": [{"role": "model", "content": f"Changing plans to {new_dest}! Let me research that for you..."}]
             }
@@ -138,17 +156,17 @@ def interviewer_node(state: AgentState) -> Dict:
         return {
             "messages": [{"role": "model", "content": "Great! I'm researching your trip now..."}],
             "user_details": user_details,
+            "interview_count": 0,  # Reset interview counter on success
             "next_node": "research",
             "debug_logs": [log]
         }
 
     return {
         "messages": [{"role": "model", "content": content}],
+        "interview_count": interview_count,  # Track interview iterations
         "next_node": "interviewer",
         "debug_logs": [log]
     }
-
-# --- PARALLEL RESEARCH NODES ---
 
 def research_food_node(state: AgentState) -> Dict:
     t0 = time.time()
@@ -307,11 +325,9 @@ def research_hotel_node(state: AgentState) -> Dict:
         
     return {"hotel_data": data, "debug_logs": [log]}
 
-# --- COMPILER & CRITIC ---
-
 def compiler_node(state: AgentState) -> Dict:
     t0 = time.time()
-    logger.info("Writing itinerary draft...")
+    logger.info("Writing itinerary draft with smart zone grouping...")
     user_details = state.get("user_details", {})
     
     # Pre-format data for the LLM
@@ -320,11 +336,69 @@ def compiler_node(state: AgentState) -> Dict:
     hotel_data = state.get("hotel_data") or []
     logistics = state.get("logistics") or {}
     
-    # Extract model data to dicts for JSON serialization
-    food_json = json.dumps([f.model_dump() if hasattr(f, 'model_dump') else f for f in food_data], indent=2, ensure_ascii=False)
-    activity_json = json.dumps([a.model_dump() if hasattr(a, 'model_dump') else a for a in activity_data], indent=2, ensure_ascii=False)
-    hotel_json = json.dumps([h.model_dump() if hasattr(h, 'model_dump') else h for h in hotel_data], indent=2, ensure_ascii=False)
-    logistics_json = json.dumps(logistics, indent=2, ensure_ascii=False)
+    # Convert to dicts for processing
+    food_dicts = [f.model_dump() if hasattr(f, 'model_dump') else f for f in food_data]
+    activity_dicts = [a.model_dump() if hasattr(a, 'model_dump') else a for a in activity_data]
+    hotel_dicts = [h.model_dump() if hasattr(h, 'model_dump') else h for h in hotel_data]
+    
+    # Get hotel coordinates for zone calculation
+    hotel_lat, hotel_lon = None, None
+    selected_hotel = None
+    if hotel_dicts:
+        selected_hotel = hotel_dicts[0]
+        hotel_lat = selected_hotel.get("lat")
+        hotel_lon = selected_hotel.get("lon")
+    
+    # Group all places by proximity zones
+    zone_groups = {"near": [], "medium": [], "far": [], "remote": []}
+    
+    if hotel_lat and hotel_lon:
+        # Combine activities and restaurants for grouping
+        all_places = []
+        for a in activity_dicts:
+            a["_type"] = "activity"
+            all_places.append(a)
+        for f in food_dicts:
+            f["_type"] = "restaurant"
+            all_places.append(f)
+        
+        raw_zone_groups = group_places_by_zone(all_places, hotel_lat, hotel_lon)
+        
+        # Programmatically optimize each zone's route before giving it to LLM
+        for zone, places in raw_zone_groups.items():
+            if places:
+                optimization = optimize_day_route.invoke({
+                    "places": places,
+                    "hotel_lat": hotel_lat,
+                    "hotel_lon": hotel_lon
+                })
+                # Replace the raw list with the mathematically optimized order
+                zone_groups[zone] = optimization.get("optimized_order", [])
+            else:
+                zone_groups[zone] = []
+    
+    # Build pre-grouped and OPTIMIZED data for the LLM
+    grouped_data = {
+        "near_hotel": {
+            "description": "Walking distance (< 2km, 10-25 min walk). OPTIMIZED ROUTE PROVIDED.",
+            "places": zone_groups.get("near", [])
+        },
+        "medium_distance": {
+            "description": "Short transit (2-5km, 15-20 min by bus/metro). OPTIMIZED ROUTE PROVIDED.", 
+            "places": zone_groups.get("medium", [])
+        },
+        "far_from_hotel": {
+            "description": "Requires dedicated transport (5-15km, 30-45 min). OPTIMIZED ROUTE PROVIDED.",
+            "places": zone_groups.get("far", [])
+        },
+        "day_trip_territory": {
+            "description": "Remote locations (15+ km, 1+ hours). OPTIMIZED ROUTE PROVIDED.",
+            "places": zone_groups.get("remote", [])
+        }
+    }
+    
+    grouped_json = json.dumps(grouped_data, indent=2, ensure_ascii=False)
+    hotel_json = json.dumps(hotel_dicts, indent=2, ensure_ascii=False)
     
     chat_llm = get_llm_for_role("compiler")
     
@@ -337,37 +411,37 @@ TRAVELER INFO:
 - Budget: {user_details.get('budget')}
 - Interests: {user_details.get('interests')}
 
-AVAILABLE RESEARCH DATA:
-- Restaurants: {food_json}
-- Activities: {activity_json}
-- Hotels: {hotel_json}
-
-LOGISTICS & SPATIAL DATA (USE THIS!):
-{logistics_json}
-
-Each item above has a "zone" field that tells you how far it is from the hotel:
-- "Near Hotel (<2km)" = Walking distance (10-20 min walk)
-- "Remote (X.Xkm)" = Requires transport (tube/bus/taxi)
+ACCOMMODATION OPTIONS:
+{hotel_json}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CRITICAL RULES FOR THE ITINERARY:
+📍 PRE-GROUPED PLACES BY PROXIMITY (USE THIS FOR DAY PLANNING!)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. GROUP BY PROXIMITY: Combine activities that are in the SAME ZONE into the same day/half-day.
-   Example: If Tower of London and a restaurant are both "Remote (5.2km)", schedule them together.
+{grouped_json}
 
-2. ALWAYS MENTION DISTANCE: When you mention a place, add how far it is.
-   - GOOD: "Walk to The British Museum (0.8km from hotel, ~10 min walk)"
-   - BAD: "Visit The British Museum"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 CRITICAL RULES FOR SMART ITINERARY:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-3. BE SPECIFIC: Use the exact names, addresses, and websites from the research data.
-   - GOOD: "Dinner at Dishoom King's Cross (5 Stable St, London N1C 4AB) - Indian, $$"
-   - BAD: "Find a nice Indian restaurant nearby"
+1. **USE THE ZONE GROUPS ABOVE!** Each day should focus on ONE zone:
+   - Day 1: Explore "near_hotel" places (easy start, jet lag friendly)
+   - Day 2: Tackle "medium_distance" zone
+   - Day 3+: Plan "far_from_hotel" or "day_trip_territory" as dedicated excursions
 
-4. TRANSPORT TIPS: For "Remote" locations, suggest specific transport.
-   - Example: "Take the Central Line from Holborn to Tower Hill station (15 min)"
+2. **NEVER MIX ZONES IN ONE DAY** unless absolutely necessary:
+   - BAD: Morning in near_hotel zone, afternoon 50km away, dinner back near hotel
+   - GOOD: Full day exploring one area, with lunch and dinner in the same zone
 
-5. INCLUDE A "Getting There" SECTION: Realistic travel options from {user_details.get('start_location')}.
+3. **ALWAYS MENTION TRAVEL INFO:**
+   - Distance from hotel
+   - Estimated travel time
+   - Transport recommendation (walk/metro/bus/taxi)
+
+4. **BE SPECIFIC:** Use exact names, addresses from the data above.
+
+5. **REMOTE LOCATIONS WARNING:** If using "day_trip_territory" places, add a note:
+   "⚠️ This is a day trip - allow extra travel time"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -379,28 +453,33 @@ OUTPUT FORMAT (Markdown):
 (Brief summary + travel style based on budget)
 
 ## Recommended Accommodation
-(Pick ONE hotel from the list, explain why)
+(Pick ONE hotel, explain why, include address)
 
 ## Day-by-Day Itinerary
 
-    ### Day 1: [Theme based on zone/area]
-    - **Morning:** [Activity Name] ([distance from hotel], [walk/transport tip])
-    - **Lunch:** [Restaurant Name] ([address], [cuisine], [price])
-    - **Afternoon:** [Activity Name]
-    - **Evening:** [Dinner spot]
-    
-    [... Follow this structure for Day 2, Day 3, etc. ...]
+### Day 1: [Zone Theme - e.g., "Exploring the Hotel Neighborhood"]
+- **Morning:** [Activity] (X.X km from hotel, ~Y min walk/transit)
+- **Lunch:** [Restaurant] (Address) - [Cuisine], [Price]
+- **Afternoon:** [Activity]
+- **Evening:** [Dinner spot]
+
+### Day 2: [Zone Theme]
+...continue for each day...
 
 ## Getting There & Transport
 (How to get from {user_details.get('start_location')} to {user_details.get('destination')})
 
 ## Tips & Budget Notes
 
-Output ONLY the Markdown itinerary. No preamble or commentary.
+Output ONLY the Markdown itinerary. No preamble.
 """
-    response = chat_llm.invoke([SystemMessage(content="You are a Travel Editor."), HumanMessage(content=prompt)])
-    draft = response.content
-    log = log_usage("compiler", t0, response)
+    # Check if we should use ReAct Agent mode
+    if USE_REACT_AGENT:
+        draft, log = _run_compiler_agent(user_details, hotel_dicts, grouped_data, t0)
+    else:
+        response = chat_llm.invoke([SystemMessage(content="You are a Travel Editor specializing in efficient, logical itineraries."), HumanMessage(content=prompt)])
+        draft = response.content
+        log = log_usage("compiler", t0, response)
     
     return {
         "draft_itinerary": draft,
@@ -408,6 +487,107 @@ Output ONLY the Markdown itinerary. No preamble or commentary.
         "next_node": "critic",
         "debug_logs": [log]
     }
+
+
+def _run_compiler_agent(user_details: Dict, hotel_dicts: List, grouped_data: Dict, t0: float) -> tuple:
+    """
+    ReAct Agent version of the compiler.
+    Uses tools to verify and optimize the route before writing.
+    """
+    logger.info("Running ReAct Agent Compiler with tools...")
+    
+    from langchain_core.messages import AIMessage
+    
+    # Get LLM with tools
+    llm_with_tools = get_llm_with_tools(TRAVEL_TOOLS)
+    
+    # Build context
+    hotel_json = json.dumps(hotel_dicts[:1], indent=2, ensure_ascii=False) if hotel_dicts else "{}"
+    grouped_json = json.dumps(grouped_data, indent=2, ensure_ascii=False)
+    
+    agent_prompt = f"""
+You are Atlas, a Travel Planner Agent with access to tools for route optimization.
+
+TASK: Create a {user_details.get('duration')} itinerary for {user_details.get('destination')}.
+
+TRAVELER INFO:
+- Start: {user_details.get('start_location', 'their location')}
+- Budget: {user_details.get('budget')}
+- Interests: {user_details.get('interests')}
+
+HOTEL (Base Location):
+{hotel_json}
+
+PLACES GROUPED BY ZONE:
+{grouped_json}
+
+AVAILABLE TOOLS:
+1. optimize_day_route - Optimize order of places for a day (minimizes travel)
+2. calculate_distance - Check distance between two points
+3. check_zone - Verify which zone a place is in
+
+YOUR WORKFLOW:
+1. FIRST: Use optimize_day_route for each day's activities to find the best order
+2. THEN: Write the final itinerary using the optimized order
+
+OUTPUT FORMAT (After using tools):
+Write a complete Markdown itinerary with:
+- Overview
+- Recommended Accommodation  
+- Day-by-Day Itinerary (using optimized routes)
+- Getting There & Transport
+- Tips & Budget Notes
+
+Start by analyzing the zones and calling optimize_day_route if needed.
+"""
+    
+    messages = [
+        SystemMessage(content="You are a Travel Planner Agent. Use tools to optimize routes, then write the itinerary."),
+        HumanMessage(content=agent_prompt)
+    ]
+    
+    # Agent loop (max 3 iterations for tool use)
+    max_iterations = 3
+    for i in range(max_iterations):
+        response = llm_with_tools.invoke(messages)
+        messages.append(response)
+        
+        # Check if there are tool calls
+        if hasattr(response, 'tool_calls') and response.tool_calls:
+            # Execute tools
+            for tool_call in response.tool_calls:
+                tool_name = tool_call.get("name")
+                tool_args = tool_call.get("args", {})
+                
+                # Find and execute the tool
+                tool_result = None
+                for tool in TRAVEL_TOOLS:
+                    if tool.name == tool_name:
+                        try:
+                            tool_result = tool.invoke(tool_args)
+                        except Exception as e:
+                            tool_result = f"Error: {e}"
+                        break
+                
+                if tool_result is None:
+                    tool_result = f"Unknown tool: {tool_name}"
+                
+                # Add tool result to messages
+                from langchain_core.messages import ToolMessage
+                messages.append(ToolMessage(
+                    content=str(tool_result),
+                    tool_call_id=tool_call.get("id", "")
+                ))
+        else:
+            # No more tool calls, we have the final response
+            break
+    
+    # Extract final content
+    draft = response.content if hasattr(response, 'content') else str(response)
+    log = log_usage("compiler_agent", t0, response)
+    
+    return draft, log
+
 
 def critic_node(state: AgentState) -> Dict:
     t0 = time.time()
@@ -457,8 +637,6 @@ def critic_node(state: AgentState) -> Dict:
         "next_node": next_node,
         "debug_logs": [log]
     }
-
-# --- GRAPH DEFINITION ---
 
 workflow = StateGraph(AgentState)
 

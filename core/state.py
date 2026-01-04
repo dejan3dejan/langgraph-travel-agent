@@ -26,7 +26,8 @@ class AgentState(TypedDict):
     critique: Optional[Dict[str, Any]] # The Judge's feedback
     
     # Control Flow
-    iteration_count: int # To prevent infinite loops
+    iteration_count: int # To prevent infinite loops in compiler/critic
+    interview_count: int # To prevent infinite loops in interviewer
     next_node: str # Where to go next
 
     # Metrics & Debugging
