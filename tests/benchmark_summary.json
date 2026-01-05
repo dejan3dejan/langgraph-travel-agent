@@ -1,24 +1,24 @@
 {
-  "scenarios_run": 180,
-  "avg_score": 84.6,
-  "min_score": 0,
+  "scenarios_run": 10,
+  "avg_score": 99.2,
+  "min_score": 92,
   "max_score": 100,
-  "total_duration_sec": 32079.9,
-  "avg_duration_sec": 178.2,
-  "total_tokens": 5671447,
+  "total_duration_sec": 976.4,
+  "avg_duration_sec": 97.6,
+  "total_tokens": 173495,
   "geocoding": {
-    "exact": 2621,
-    "neighborhood": 521,
-    "failed": 408,
-    "api_calls": 4424
+    "exact": 74,
+    "neighborhood": 13,
+    "failed": 19,
+    "api_calls": 133
   },
   "node_avg_latency": {
-    "interviewer": 8.29,
-    "research_activity": 10.43,
-    "research_food": 10.54,
-    "research_hotel": 9.67,
-    "logistics": 6.86,
-    "compiler_agent": 8.97,
-    "critic": 2.37
+    "interviewer": 7.46,
+    "research_activity": 10.93,
+    "research_hotel": 10.05,
+    "logistics": 6.84,
+    "compiler": 9.55,
+    "critic": 2.67,
+    "research_food": 11.26
   }
 }

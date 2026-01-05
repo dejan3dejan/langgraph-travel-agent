@@ -132,7 +132,7 @@ async def run_simulation(scenario: Dict) -> Dict:
             user_msg = f"I want to go to {dest} for {days} days. Surprise me with the rest."
             
         # Simulate User Input
-        response, history, logs, _ = orchestrator.chat(user_msg, history)
+        response, history, logs, _ = await orchestrator.chat(user_msg, history)
         final_output = response
         if logs: all_logs.extend(logs)
         

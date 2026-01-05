@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.callbacks import adispatch_custom_event
 
 from .state import AgentState
 from .schemas import UserPreferences, RestaurantList, ActivityList, HotelList, ItineraryCritique
@@ -36,7 +37,7 @@ def log_usage(node_name: str, start_time: float, response: Any = None) -> Dict:
         "timestamp": time.strftime("%H:%M:%S")
     }
 
-def interviewer_node(state: AgentState) -> Dict:
+async def interviewer_node(state: AgentState) -> Dict:
     t0 = time.time()
     messages = state.get("messages", [])
     interview_count = state.get("interview_count", 0) + 1
@@ -93,7 +94,10 @@ def interviewer_node(state: AgentState) -> Dict:
         logger.warning(f"Interviewer hit max iterations ({MAX_INTERVIEW_ITERATIONS}). Forcing extraction...")
         content = "PLANNING_STARTED"  # Force it
     else:
-        response = chat_llm.invoke(lc_messages)
+        response = await chat_llm.ainvoke(
+            lc_messages,
+            config={"tags": ["final_itinerary"]}
+        )
         content = response.content
     
     log = log_usage("interviewer", t0, response if not force_extraction else None)
@@ -113,7 +117,7 @@ def interviewer_node(state: AgentState) -> Dict:
             HumanMessage(content=str(messages))
         ]
         try:
-            user_prefs = structured_llm.invoke(extraction_msg)
+            user_prefs = await structured_llm.ainvoke(extraction_msg)
             user_details = user_prefs.model_dump()
             
             # Auto-fill interests if missing
@@ -201,7 +205,8 @@ def research_food_node(state: AgentState) -> Dict:
     
     try:
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        grounded_text = grounded_response.content
+        # Use getattr to safely get content from potential Response object
+        grounded_text = getattr(grounded_response, 'content', str(grounded_response))
         
         extraction_prompt = f"""
         Extract restaurant information from this text into structured format.
@@ -220,6 +225,7 @@ def research_food_node(state: AgentState) -> Dict:
         log = log_usage("research_food", t0)
         
     return {"food_data": data, "debug_logs": [log]}
+
 
 def research_activity_node(state: AgentState) -> Dict:
     t0 = time.time()
@@ -254,7 +260,8 @@ def research_activity_node(state: AgentState) -> Dict:
     
     try:
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        grounded_text = grounded_response.content
+        # Use getattr to safely get content from potential Response object
+        grounded_text = getattr(grounded_response, 'content', str(grounded_response))
         
         extraction_prompt = f"""
         Extract activity information from this text into structured format.
@@ -305,7 +312,8 @@ def research_hotel_node(state: AgentState) -> Dict:
     
     try:
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        grounded_text = grounded_response.content
+        # Use getattr to safely get content from potential Response object
+        grounded_text = getattr(grounded_response, 'content', str(grounded_response))
         
         extraction_prompt = f"""
         Extract hotel information from this text into structured format.
@@ -325,8 +333,11 @@ def research_hotel_node(state: AgentState) -> Dict:
         
     return {"hotel_data": data, "debug_logs": [log]}
 
-def compiler_node(state: AgentState) -> Dict:
+async def compiler_node(state: AgentState) -> Dict:
     t0 = time.time()
+    # Explicit signal to reset any streaming buffers (useful if critic loops back)
+    await adispatch_custom_event("reset_itinerary", {"message": "Refining itinerary..."})
+
     logger.info("Writing itinerary draft with smart zone grouping...")
     user_details = state.get("user_details", {})
     
@@ -471,13 +482,16 @@ OUTPUT FORMAT (Markdown):
 
 ## Tips & Budget Notes
 
-Output ONLY the Markdown itinerary. No preamble.
+Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code blocks. No preamble.
 """
     # Check if we should use ReAct Agent mode
     if USE_REACT_AGENT:
-        draft, log = _run_compiler_agent(user_details, hotel_dicts, grouped_data, t0)
+        draft, log = await _run_compiler_agent(user_details, hotel_dicts, grouped_data, t0)
     else:
-        response = chat_llm.invoke([SystemMessage(content="You are a Travel Editor specializing in efficient, logical itineraries."), HumanMessage(content=prompt)])
+        response = await chat_llm.ainvoke(
+            [SystemMessage(content="You are a Travel Editor specializing in efficient, logical itineraries."), HumanMessage(content=prompt)],
+            config={"tags": ["final_itinerary"]}
+        )
         draft = response.content
         log = log_usage("compiler", t0, response)
     
@@ -489,7 +503,7 @@ Output ONLY the Markdown itinerary. No preamble.
     }
 
 
-def _run_compiler_agent(user_details: Dict, hotel_dicts: List, grouped_data: Dict, t0: float) -> tuple:
+async def _run_compiler_agent(user_details: Dict, hotel_dicts: List, grouped_data: Dict, t0: float) -> tuple:
     """
     ReAct Agent version of the compiler.
     Uses tools to verify and optimize the route before writing.
@@ -549,7 +563,10 @@ Start by analyzing the zones and calling optimize_day_route if needed.
     # Agent loop (max 3 iterations for tool use)
     max_iterations = 3
     for i in range(max_iterations):
-        response = llm_with_tools.invoke(messages)
+        response = await llm_with_tools.ainvoke(
+            messages,
+            config={"tags": ["final_itinerary"]}
+        )
         messages.append(response)
         
         # Check if there are tool calls

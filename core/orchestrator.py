@@ -1,3 +1,4 @@
+import json
 from typing import List, Dict, Tuple, Any
 from .graph import app
 
@@ -5,11 +6,8 @@ class TravelOrchestrator:
     def __init__(self):
         self.app = app
 
-    def chat(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, str]], List[Dict[str, Any]], Dict[str, Any]]:
-        """
-        Invokes the LangGraph workflow.
-        Returns: (response_text, updated_history, metrics_logs, user_details)
-        """
+    async def chat(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, str]], List[Dict[str, Any]], Dict[str, Any]]:
+        """Standard invocation of the LangGraph workflow."""
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
         
@@ -19,18 +17,10 @@ class TravelOrchestrator:
         }
         
         try:
-            result = self.app.invoke(inputs, config={"recursion_limit": 100})
+            result = await self.app.ainvoke(inputs, config={"recursion_limit": 100})
             
             messages = result.get("messages", [])
-            if messages:
-                last_msg_obj = messages[-1]
-                if isinstance(last_msg_obj, dict):
-                    last_content = last_msg_obj.get("content", "")
-                else:
-                    last_content = last_msg_obj.content
-            else:
-                last_content = "I'm not sure what to say."
-
+            last_content = messages[-1]["content"] if messages else "I'm not sure what to say."
             updated_history.append({"role": "model", "content": last_content})
 
             final_response = last_content
@@ -41,10 +31,50 @@ class TravelOrchestrator:
                 else:
                     final_response = f"{result['draft_itinerary']}\n\n*Reviewer Note: {critique.get('feedback')}*"
             
-            logs = result.get("debug_logs", [])
-            user_details = result.get("user_details", {})
-            
-            return final_response, updated_history, logs, user_details
+            return final_response, updated_history, result.get("debug_logs", []), result.get("user_details", {})
             
         except Exception as e:
             return f"System Error: {str(e)}", history, [], {}
+
+    async def stream_chat(self, user_message: str, history: List[Dict[str, str]]):
+        """Asynchronous generator that yields clean dict events from LangGraph."""
+        updated_history = list(history)
+        updated_history.append({"role": "user", "content": user_message})
+        
+        inputs = {
+            "messages": updated_history,
+            "iteration_count": 0
+        }
+
+        async for event in self.app.astream_events(inputs, version="v2", config={"recursion_limit": 100}):
+            kind = event["event"]
+            
+            if kind == "on_node_start":
+                node_name = event["name"]
+                if node_name == "compiler":
+                    yield {"type": "reset", "content": "Refining the itinerary based on feedback..."}
+
+                status_map = {
+                    "interviewer": "Atlas is thinking...",
+                    "research_food": "🔍 Searching for the best restaurants...",
+                    "research_activity": "🏛 Researching activities...",
+                    "research_hotel": "🏨 Finding accommodations...",
+                    "compiler": "✍️ Compiling your itinerary..."
+                }
+                msg = status_map.get(node_name)
+                if msg:
+                    yield {"type": "status", "content": msg, "node": node_name}
+
+            elif kind == "on_chat_model_stream":
+                if "final_itinerary" in event.get("tags", []):
+                    content = event["data"]["chunk"].content
+                    if content:
+                        yield {"type": "token", "content": content}
+
+            elif kind == "on_custom_event":
+                if event["name"] == "reset_itinerary":
+                    yield {"type": "reset", "content": event["data"].get("message")}
+                elif event["name"] == "status_update":
+                    yield {"type": "status", "content": event["data"].get("message")}
+
+        yield {"type": "end"}

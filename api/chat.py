@@ -1,21 +1,25 @@
 """
-Smart Chat API endpoint powered by the new Travel Orchestrator.
+Smart Chat API endpoint powered by the Travel Orchestrator.
+Supports both standard and streaming responses.
 """
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
-from typing import Optional
 import uuid
+import json
+import asyncio
+from datetime import datetime
+from typing import Optional, List, Dict
 
-from core.logger import get_logger
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
+
+from core.logger import get_logger
 from core.database import get_db, ChatSession, Trip
 from core.orchestrator import TravelOrchestrator
 
 logger = get_logger(__name__)
 router = APIRouter()
-
-# Initialize Orchestrator (stateless usage)
 orchestrator = TravelOrchestrator()
 
 # --- Data Models ---
@@ -29,43 +33,41 @@ class ChatResponse(BaseModel):
     session_id: str
     message: str
     state: str # 'chatting' | 'planning' | 'completed'
-    itinerary: Optional[str] = None # Markdown string
+    itinerary: Optional[str] = None
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
-    """
-    Chat endpoint that delegates to the Orchestrator.
-    """
-    # 1. Get/Create Session
-    session_id = chat_message.session_id or str(uuid.uuid4())
-    db_session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+# --- Helper Functions ---
+
+def get_or_create_session(db: Session, session_id: Optional[str], user_id: Optional[str]) -> tuple[str, ChatSession]:
+    sid = session_id or str(uuid.uuid4())
+    db_session = db.query(ChatSession).filter(ChatSession.session_id == sid).first()
     
     if not db_session:
         db_session = ChatSession(
-            session_id=session_id,
-            user_id=chat_message.user_id,
-            data={"history": []} # Store chat history here
+            session_id=sid,
+            user_id=user_id,
+            data={"history": []}
         )
         db.add(db_session)
         db.commit()
-    
-    # 2. Get History from DB
+    return sid, db_session
+
+# --- Routes ---
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
+    """Standard non-streaming chat endpoint."""
+    session_id, db_session = get_or_create_session(db, chat_message.session_id, chat_message.user_id)
     history = db_session.data.get("history", [])
-    
-    # 3. Process Message
     user_text = chat_message.message.strip()
     
     try:
-        response_text, updated_history, _, user_details = orchestrator.chat(user_text, history)
+        response_text, updated_history, _, user_details = await orchestrator.chat(user_text, history)
         
-        # 4. Save Updated History
         db_session.data["history"] = updated_history
         flag_modified(db_session, "data")
         db.commit()
         
-        # 5. Check if Planning Happened
         if "# Day 1" in response_text or "##" in response_text:
-             # SAVE STRUCTURED DATA FOR ANALYTICS
              try:
                  new_trip = Trip(
                      session_id=session_id,
@@ -87,12 +89,12 @@ async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
                 state="completed",
                 itinerary=response_text
             )
-        else:
-            return ChatResponse(
-                session_id=session_id,
-                message=response_text,
-                state="chatting"
-            )
+        
+        return ChatResponse(
+            session_id=session_id,
+            message=response_text,
+            state="chatting"
+        )
             
     except Exception as e:
         logger.error(f"Orchestrator Error: {e}")
@@ -101,3 +103,68 @@ async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
             message=f"I encountered an error: {str(e)}",
             state="error"
         )
+
+@router.post("/chat/stream")
+async def chat_stream(chat_message: ChatMessage, db: Session = Depends(get_db)):
+    """Streaming chat endpoint with guaranteed persistence."""
+    session_id, db_session = get_or_create_session(db, chat_message.session_id, chat_message.user_id)
+    history = db_session.data.get("history", [])
+    user_text = chat_message.message.strip()
+
+    async def event_generator():
+        accumulated_data = {
+            "itinerary": "",
+            "completed": False,
+            "start_time": datetime.utcnow()
+        }
+        
+        try:
+            async for event in orchestrator.stream_chat(user_text, history):
+                if event["type"] == "reset":
+                    accumulated_data["itinerary"] = ""
+                elif event["type"] == "token":
+                    accumulated_data["itinerary"] += event["content"]
+                elif event["type"] == "end":
+                    accumulated_data["completed"] = True
+                
+                yield f"data: {json.dumps(event)}\n\n"
+
+        except asyncio.CancelledError:
+            logger.warning(f"Stream cancelled for session {session_id}")
+            raise
+        except Exception as e:
+            logger.error(f"Stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        finally:
+            if accumulated_data["itinerary"].strip():
+                try:
+                    # Persistence logic
+                    new_history = list(history)
+                    new_history.append({"role": "user", "content": user_text})
+                    new_history.append({"role": "model", "content": accumulated_data["itinerary"]})
+                    
+                    current_db_session = next(get_db())
+                    active_session = current_db_session.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+                    
+                    if active_session:
+                        active_session.data["history"] = new_history
+                        flag_modified(active_session, "data")
+                        
+                        if "# Day 1" in accumulated_data["itinerary"] or "##" in accumulated_data["itinerary"]:
+                            new_trip = Trip(
+                                session_id=session_id,
+                                destination="Extracted from stream", 
+                                itinerary_text=accumulated_data["itinerary"]
+                            )
+                            current_db_session.add(new_trip)
+                        
+                        current_db_session.commit()
+                        logger.info(f"Stream data persisted for session {session_id}")
+                except Exception as save_err:
+                    logger.error(f"Final persistence failed: {save_err}")
+
+    return StreamingResponse(
+        event_generator(), 
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
