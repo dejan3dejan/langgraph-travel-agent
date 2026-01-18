@@ -1,25 +1,141 @@
-import time
 import json
-from typing import Dict, Any, List
+import time
+from typing import Any
 
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.callbacks import adispatch_custom_event
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langgraph.graph import END, StateGraph
 
-from .state import AgentState
-from .schemas import UserPreferences, RestaurantList, ActivityList, HotelList, ItineraryCritique
-from .llm import get_llm_for_role, get_llm_with_tools, USE_REACT_AGENT
-from .logistics import logistics_agent
-from .tools import group_places_by_zone, optimize_day_route, TRAVEL_TOOLS
+from .llm import USE_REACT_AGENT, get_llm_for_role, get_llm_with_tools
 from .logger import get_logger
+from .logistics import logistics_agent
+from .schemas import ActivityList, HotelList, ItineraryCritique, RestaurantList, UserPreferences
+from .state import AgentState
+from .tools import TRAVEL_TOOLS, group_places_by_zone, optimize_day_route
 
 logger = get_logger(__name__)
 
-def log_usage(node_name: str, start_time: float, response: Any = None) -> Dict:
+
+def _get_narrative_style(num_travelers: int, age_range: str, trip_type: str | None) -> str:
+    """Generate narrative tone guidance for compiler."""
+
+    style = []
+
+    # Addressing style
+    if num_travelers == 1:
+        style.append("- Address the traveler as 'you' (singular)")
+    else:
+        style.append(f"- Address as 'you' (plural) - remember there are {num_travelers} travelers")
+
+    # Tone by trip type
+    if trip_type == "romantic":
+        style.append("- Use romantic, intimate language ('your evening together', 'a cozy dinner for two')")
+        style.append("- Emphasize ambiance and special moments")
+    elif trip_type == "family":
+        style.append("- Family-friendly language ('the kids will love...', 'parents can relax while...')")
+        style.append("- Mention logistics (restrooms, snack stops, break times)")
+    elif trip_type == "adventure":
+        style.append("- Energetic, action-oriented language ('conquer', 'explore', 'challenge yourself')")
+        style.append("- Emphasize physical experiences and adrenaline")
+    elif trip_type == "business" or trip_type == "workation":
+        style.append("- Professional tone, efficient pacing")
+        style.append("- Mention wifi/workspace availability")
+    elif trip_type == "relaxation":
+        style.append("- Calm, soothing language ('unwind', 'leisurely', 'at your own pace')")
+        style.append("- Minimize packed schedules")
+    else:
+        style.append("- Balanced, informative tone")
+
+    # Pacing by age
+    if age_range == "kids" or age_range == "mixed":
+        style.append("- Build in rest breaks and flexible timing")
+        style.append("- Shorter activity blocks (1-2 hours max)")
+    elif age_range == "seniors":
+        style.append("- Emphasize comfort and accessibility")
+        style.append("- Slower pacing, more sitting/rest opportunities")
+    elif age_range == "young_adults":
+        style.append("- Pack activities densely if interests allow")
+        style.append("- Mention social/nightlife options")
+
+    return "\n".join(style)
+
+
+def _get_overview_guidance(trip_type: str | None, age_range: str, num_travelers: int) -> str:
+    """Generate guidance for Overview section."""
+
+    if trip_type == "romantic":
+        return "(Write a romantic intro: 'Your romantic escape to [dest]...', mention couple-friendly highlights)"
+    elif trip_type == "family":
+        return f"(Family-focused intro for {num_travelers} travelers, mention kid-friendly highlights and parent conveniences)"
+    elif trip_type == "adventure":
+        return "(Energetic intro highlighting outdoor activities, physical challenges, and natural beauty)"
+    elif trip_type == "business":
+        return "(Professional intro balancing work needs with cultural exploration)"
+    else:
+        return "(Brief summary of destination highlights tailored to traveler interests)"
+
+
+def _get_day_structure_guide(age_range: str, trip_type: str | None) -> str:
+    """Generate guidance for daily schedule structure."""
+
+    if age_range == "kids" or age_range == "mixed":
+        return """
+- **Morning:** (Kid-friendly activity, finish before lunch nap time)
+- **Lunch:** (Restaurant with kids menu, note high chairs/changing facilities)
+- **Afternoon:** (Lighter activity or hotel break for naps)
+- **Evening:** (Early dinner, family-friendly restaurant)
+"""
+    elif trip_type == "romantic":
+        return """
+- **Morning:** (Leisurely start, romantic breakfast spot)
+- **Midday:** (Couple's activity or scenic walk)
+- **Afternoon:** (Cultural site or relaxing experience)
+- **Evening:** (Romantic dinner with ambiance notes)
+"""
+    elif trip_type == "adventure":
+        return """
+- **Early Morning:** (Start early for best light/fewer crowds)
+- **Morning-Afternoon:** (Main adventure activity, 3-5 hours)
+- **Late Afternoon:** (Recovery time or lighter exploration)
+- **Evening:** (Hearty meal to refuel)
+"""
+    else:
+        return """
+- **Morning:** [Activity] (X.X km from hotel, ~Y min walk/transit)
+- **Lunch:** [Restaurant] (Address) - [Cuisine], [Price]
+- **Afternoon:** [Activity]
+- **Evening:** [Dinner spot]
+"""
+
+
+def _get_tips_guidance(age_range: str, trip_type: str | None, num_travelers: int) -> str:
+    """Generate guidance for Tips section."""
+
+    tips = []
+
+    if age_range == "kids" or age_range == "mixed":
+        tips.append("(Include: baby changing facilities, playgrounds nearby, kid-friendly restaurants)")
+
+    if age_range == "seniors":
+        tips.append("(Include: elevator access, rest benches, taxi/accessible transport options)")
+
+    if trip_type == "romantic":
+        tips.append("(Include: reservation tips for romantic restaurants, sunset timing, couple's spa options)")
+
+    if num_travelers >= 5:
+        tips.append("(Include: group reservation tips, split-check restaurant policies, group transport options)")
+
+    if not tips:
+        tips.append("(Standard budget tips and local customs)")
+
+    return "\n".join(tips)
+
+
+def log_usage(node_name: str, start_time: float, response: Any = None) -> dict:
     """Creates a log entry for usage metrics."""
     duration = time.time() - start_time
     tokens = 0
-    
+
     # Try to extract tokens if available
     try:
         if response:
@@ -29,217 +145,445 @@ def log_usage(node_name: str, start_time: float, response: Any = None) -> Dict:
                 tokens = response.response_metadata.get("token_usage", {}).get("total_tokens", 0)
     except Exception:
         pass
-        
+
     return {
         "node": node_name,
         "latency_sec": round(duration, 2),
         "total_tokens": tokens,
-        "timestamp": time.strftime("%H:%M:%S")
+        "timestamp": time.strftime("%H:%M:%S"),
     }
 
-async def interviewer_node(state: AgentState) -> Dict:
+
+async def interviewer_node(state: AgentState) -> dict:
     t0 = time.time()
     messages = state.get("messages", [])
     interview_count = state.get("interview_count", 0) + 1
-    
+
     MAX_INTERVIEW_ITERATIONS = 4  # Force extraction after this many attempts
-    
+
     system_prompt = """
     You are 'Atlas', a charming and intelligent Travel Consultant.
     GOAL: Gather [Destination, Duration, Budget, Interests] to start planning.
 
-    PHASE 1: DEEP SCAN
-    Review the ENTIRE conversation history. 
-    - Did the user mention their Budget 3 messages ago? -> IT COUNTS.
-    - Did the user say "Surprise me"? -> That means Interests = "General Sightseeing".
-    - Did the user mention a region like "Wisconsin" or "Texas"? -> ACCEPT IT as destination.
-    - Did the user mention dates like "March 13th to March 17th"? -> Calculate duration from dates.
-    
-    PHASE 2: SMART DEFAULTS
-    If some info is missing but you have enough context, USE SMART DEFAULTS:
-    - No budget mentioned but trip details given? -> Assume "Medium budget"
-    - No duration but dates given? -> Calculate from dates
-    - No specific interests? -> Default to "General Sightseeing"
-    
-    PHASE 3: VERIFICATION
-    Check if we have the MINIMUM requirements:
-    1. Destination (City, State, Region, or Country - ANY is OK!)
-    2. Duration (Days OR date range)
-    3. Budget (Amount, Level, OR assume Medium if trip is detailed)
+═══════════════════════════════════════════════════════════════
+PHASE 1: DEEP SCAN
+═══════════════════════════════════════════════════════════════
+Review the ENTIRE conversation history.
+- Did the user mention their Budget 3 messages ago? -> IT COUNTS.
+- Did the user say "Surprise me"? -> That means Interests = "General Sightseeing".
+- Did the user mention a region like "Wisconsin" or "Texas"? -> ACCEPT IT as destination.
+- Did the user mention dates like "March 13th to March 17th"? -> Calculate duration from dates.
 
-    PHASE 4: ACTION
-    - If you have Destination + Duration (budget can be assumed) -> OUTPUT ONLY: "PLANNING_STARTED"
-    - If ONLY destination is truly missing -> Ask for it politely.
-    
-    CRITICAL RULES:
-    - NEVER say "I cannot do this". You are an expert planner.
-    - If Destination is a region (e.g., "Texas", "Wisconsin"), ACCEPT IT. Do not ask for specific cities.
-    - Be AGGRESSIVE about starting - users want plans, not interviews!
-    - If you have destination and ANY hint of duration -> START PLANNING.
-    """
-    
+TEMPORAL CLUES (highest priority):
+- Specific dates: "March 13th to 17th" → travel_dates = "March 13-17, 2026"
+- Month mentions: "going in summer" → season_preference = "peak"
+- Flexibility signals: "whenever is cheapest" → season_preference = "off_season"
+- Budget+timing link: "low budget, flexible dates" → suggest off-season
+
+TRAVELER COMPOSITION:
+- Plural language: "we", "us", "our" → num_travelers ≥ 2
+- Explicit numbers: "me and my wife" → 2, "family of 4" → 4
+- Age hints: "with kids", "elderly parents", "college friends" → age_range
+- Relationship clues: "honeymoon", "bachelor party", "anniversary" → trip_type + age_range
+
+TRIP PURPOSE (often implicit):
+- Language style: "romantic getaway" → romantic, "team building" → business
+- Activity preferences: "hiking trails" → adventure, "museums + cafes" → cultural
+- Pace indicators: "slow travel", "whirlwind tour", "relax" → trip_type
+
+═══════════════════════════════════════════════════════════════
+PHASE 2: SMART DEFAULTS
+═══════════════════════════════════════════════════════════════
+If some info is missing but you have enough context, USE SMART DEFAULTS:
+
+TIMING:
+- No dates mentioned → season_preference = "flexible"
+- Budget = "Low" + no dates → season_preference = "off_season" (actively suggest this!)
+- Budget = "High" + no dates → season_preference = "peak" (they can afford it)
+
+TRAVELERS:
+- No plural language → num_travelers = 1
+- "We" but no count → num_travelers = 2 (most common)
+- "Family" but no details → num_travelers = 4, age_range = "mixed"
+
+TRIP TYPE:
+- Extract from interests:
+  * "food, wine, romance" → romantic
+  * "hiking, camping, nature" → adventure
+  * "museums, history, art" → cultural
+  * No clear signal → None (let compiler be generic)
+
+- No budget mentioned but trip details given? -> Assume "Medium budget"
+- No duration but dates given? -> Calculate from dates
+- No specific interests? -> Default to "General Sightseeing"
+
+═══════════════════════════════════════════════════════════════
+PHASE 3: SEASON INTELLIGENCE
+═══════════════════════════════════════════════════════════════
+If travel_dates is None and season_preference is "flexible":
+
+1. Consider destination climate:
+   - Tropical: avoid rainy season
+   - Mediterranean: suggest shoulder season (cheaper, less crowded)
+   - Northern Europe: avoid deep winter unless budget allows indoor activities
+
+2. Cross-reference with budget:
+   - Low budget → "Off-season (Nov-Mar except holidays) = 30-50% cheaper hotels"
+   - Medium budget → "Shoulder season (Apr-May, Sep-Oct) = good weather + reasonable prices"
+   - High budget → "Peak season if you want best weather, or off-peak for exclusivity"
+
+3. Store suggestion internally (will be added to state later)
+
+═══════════════════════════════════════════════════════════════
+PHASE 4: VERIFICATION (Immediate Extraction Check)
+═══════════════════════════════════════════════════════════════
+DO NOT WRITE CONVERSATIONAL RESPONSES IF YOU HAVE DATA!
+
+Check if you have the MINIMUM requirements:
+1. ✅ Destination (City, State, Region, or Country - ANY is OK!)
+2. ✅ Duration (Days OR date range)
+3. ✅ Budget (Amount, Level, OR assume Medium if trip is detailed)
+
+IF ALL 3 ARE PRESENT → YOU MUST OUTPUT "PLANNING_STARTED" IMMEDIATELY.
+
+DO NOT:
+- Write travel advice
+- Describe what you'll plan
+- Ask for confirmation
+- Suggest timing options in conversational way
+
+ONLY:
+- Output "PLANNING_STARTED" to trigger research
+
+Example of what NOT to do:
+❌ "I'm envisioning a luxurious trip... let me start putting a sketch together"
+❌ "Based on your preferences, I'll create a romantic itinerary"
+❌ "Let me research that for you..."
+
+Example of what TO do:
+✅ "PLANNING_STARTED"
+
+═══════════════════════════════════════════════════════════════
+PHASE 5: PROGRESSIVE QUESTIONING (Only if critical data missing)
+═══════════════════════════════════════════════════════════════
+IF (missing destination OR duration):
+    → Ask THE MOST IMPORTANT missing field
+    → Keep it casual: "Quick question – where are you thinking of going?"
+    → MAX 1-2 sentences
+
+ELIF (interview_count >= 4):
+    → Force "PLANNING_STARTED" with best guesses
+
+EXAMPLES:
+- Missing destination: "Where would you like to go?"
+- Missing duration: "How many days are you thinking?"
+- Has everything: "PLANNING_STARTED" (no extra text!)
+
+═══════════════════════════════════════════════════════════════
+CRITICAL RULES
+═══════════════════════════════════════════════════════════════
+1. NEVER say "I cannot do this". You are an expert planner.
+2. If Destination is a region (e.g., "Texas", "Wisconsin"), ACCEPT IT. Do not ask for specific cities.
+3. Be AGGRESSIVE about starting - users want plans, not interviews!
+4. If you have destination and ANY hint of duration → OUTPUT "PLANNING_STARTED".
+5. If the user's FIRST message contains Destination + Duration → IMMEDIATELY "PLANNING_STARTED"
+6. Your job is to EXTRACT and TRIGGER, not to PRE-PLAN. Research nodes will do the work.
+"""
+
     lc_messages = [SystemMessage(content=system_prompt)]
     for m in messages:
-        if m["role"] == "user": lc_messages.append(HumanMessage(content=m["content"]))
-        else: lc_messages.append(AIMessage(content=m["content"]))
-    
+        if m["role"] == "user":
+            lc_messages.append(HumanMessage(content=m["content"]))
+        else:
+            lc_messages.append(AIMessage(content=m["content"]))
+
     # Get models for role
     chat_llm = get_llm_for_role("interviewer")
     extraction_llm = get_llm_for_role("extraction")
-    
+
     # Check if we should force extraction due to max iterations
     force_extraction = interview_count >= MAX_INTERVIEW_ITERATIONS
-    
+
     if force_extraction:
         logger.warning(f"Interviewer hit max iterations ({MAX_INTERVIEW_ITERATIONS}). Forcing extraction...")
-        content = "PLANNING_STARTED"  # Force it
+        content = "PLANNING_STARTED"
     else:
-        response = await chat_llm.ainvoke(
-            lc_messages,
-            config={"tags": ["final_itinerary"]}
-        )
+        response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
         content = response.content
-    
+
     log = log_usage("interviewer", t0, response if not force_extraction else None)
-    
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 🔥 AGGRESSIVE EXTRACTION CHECK (Override conversational mode)
+    # ═══════════════════════════════════════════════════════════════════
+    # If LLM didn't say PLANNING_STARTED but we have enough data, force it
+    if "PLANNING_STARTED" not in content.upper():
+        # Quick heuristic: check last user message for destination + duration signals
+        last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+
+        # Destination signals
+        destination_keywords = [
+            "paris",
+            "london",
+            "rome",
+            "tokyo",
+            "new york",
+            "barcelona",
+            "amsterdam",
+            "berlin",
+            "prague",
+            "vienna",
+            "dublin",
+            "lisbon",
+            "madrid",
+            "athens",
+            "trip to",
+            "visit",
+            "going to",
+            "traveling to",
+            "travel to",
+            "explore",
+        ]
+        has_destination = any(word in last_user_msg.lower() for word in destination_keywords)
+
+        # Duration signals
+        duration_keywords = [
+            "day",
+            "week",
+            "weekend",
+            "night",
+            "3-day",
+            "five days",
+            "two weeks",
+            "1 day",
+            "2 days",
+            "3 days",
+            "4 days",
+            "5 days",
+            "6 days",
+            "7 days",
+        ]
+        has_duration = any(word in last_user_msg.lower() for word in duration_keywords)
+
+        # If both are present in the FIRST user message, force extraction
+        if has_destination and has_duration and interview_count == 1:
+            logger.info("🔥 FORCING EXTRACTION: First message contains destination + duration")
+            content = "PLANNING_STARTED"
+
+    # ═══════════════════════════════════════════════════════════════════
+
     if "PLANNING_STARTED" in content.upper() or force_extraction:
         # Structured Extraction
         structured_llm = extraction_llm.with_structured_output(UserPreferences)
-        
+
         prompt = """
-        Analyze the conversation and extract user preferences.
-        If the user hasn't specified a start location, set it to 'the user's current location'.
-        If the user only cares about specific things (like just food or just hotels), list them in 'focus'.
-        """
-        
-        extraction_msg = [
-            SystemMessage(content=prompt),
-            HumanMessage(content=str(messages))
-        ]
+Analyze the conversation and extract user preferences.
+
+EXTRACTION RULES:
+1. If the user hasn't specified a start location, set it to 'the user's current location'.
+2. Extract num_travelers from plural language ("we" = 2, "family" = 4, solo words = 1)
+3. Extract age_range from context ("kids", "honeymoon" = adults, etc.)
+4. Extract trip_type from language ("romantic", "adventure", "family", etc.)
+5. If user mentions specific dates, put them in travel_dates
+6. If user mentions timing preferences (cheap, off-season), set season_preference
+7. Auto-fill interests if missing with "General Sightseeing"
+8. Extract budget from context (if not mentioned, use "Medium")
+
+CONVERSATION:
+"""
+
+        extraction_msg = [SystemMessage(content=prompt), HumanMessage(content=str(messages))]
+
         try:
             user_prefs = await structured_llm.ainvoke(extraction_msg)
             user_details = user_prefs.model_dump()
-            
+
             # Auto-fill interests if missing
             if not user_details.get("interests") or user_details.get("interests").lower() == "unknown":
                 user_details["interests"] = "General Sightseeing"
-            
+
             # Final safety check for start_location
             if not user_details.get("start_location"):
                 user_details["start_location"] = "the user's current location"
-                
+
+            # Generate season suggestion if dates are flexible
+            season_suggestion = None
+            if not user_details.get("travel_dates"):
+                budget = user_details.get("budget", "Medium")
+
+                # Simple season suggestion logic
+                if budget.lower() == "low":
+                    season_suggestion = (
+                        "Off-season (typically Nov-Mar for Europe): 30-50% cheaper accommodations and fewer crowds"
+                    )
+                elif budget.lower() == "high":
+                    season_suggestion = (
+                        "Peak season (late spring/early autumn): Best weather and full availability of experiences"
+                    )
+                else:
+                    season_suggestion = (
+                        "Shoulder season (April-May or Sept-Oct): Great balance of weather, prices, and crowd levels"
+                    )
+
         except Exception as e:
             logger.error(f"Extraction Failed: {e}")
             user_details = {
-                "destination": "Paris", 
-                "start_location": "the user's current location", 
-                "budget": "Medium", 
-                "duration": "3 days", 
+                "destination": "Paris",
+                "start_location": "the user's current location",
+                "budget": "Medium",
+                "duration": "3 days",
                 "interests": "General",
-                "focus": []
+                "focus": [],
+                "num_travelers": 2,
+                "age_range": "adults",
+                "trip_type": None,
+                "travel_dates": None,
+                "season_preference": "flexible",
             }
+            season_suggestion = None
 
         old_details = state.get("user_details", {})
         old_dest = old_details.get("destination")
         new_dest = user_details.get("destination")
-        
+
         if old_dest and old_dest != new_dest:
             logger.info(f"Destination changed from {old_dest} to {new_dest}. Resetting research data.")
             return {
                 "user_details": user_details,
+                "season_suggestion": season_suggestion,
                 "food_data": None,
                 "activity_data": None,
                 "hotel_data": None,
                 "draft_itinerary": None,
                 "iteration_count": 0,
-                "interview_count": 0,  # Reset interview counter
+                "interview_count": 0,
                 "next_node": "research",
-                "messages": [{"role": "model", "content": f"Changing plans to {new_dest}! Let me research that for you..."}]
+                "messages": [
+                    {"role": "model", "content": f"Changing plans to {new_dest}! Let me research that for you..."}
+                ],
             }
-            
+
         return {
             "messages": [{"role": "model", "content": "Great! I'm researching your trip now..."}],
             "user_details": user_details,
-            "interview_count": 0,  # Reset interview counter on success
+            "season_suggestion": season_suggestion,
+            "interview_count": 0,
             "next_node": "research",
-            "debug_logs": [log]
+            "debug_logs": [log],
         }
 
     return {
         "messages": [{"role": "model", "content": content}],
-        "interview_count": interview_count,  # Track interview iterations
+        "interview_count": interview_count,
         "next_node": "interviewer",
-        "debug_logs": [log]
+        "debug_logs": [log],
     }
 
-def research_food_node(state: AgentState) -> Dict:
+
+def research_food_node(state: AgentState) -> dict:
     t0 = time.time()
     details = state.get("user_details", {})
     dest = details.get("destination")
-    constraints = details.get('constraints', '')
-    logger.info(f"Searching restaurants in {dest}...")
-    
+    constraints = details.get("constraints", "")
+
+    # === EXTRACT NEW FIELDS ===
+    num_travelers = details.get("num_travelers", 1)
+    age_range = details.get("age_range", "adults")
+    budget = details.get("budget", "Medium")
+
+    logger.info(f"Searching restaurants in {dest} for {num_travelers} {age_range} travelers...")
+
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
     extraction_llm = get_llm_for_role("extraction")
-    
+
+    # === BUILD SMART SEARCH PROMPT ===
     search_prompt = f"""
     Use Google Search to find 3 REAL, currently operating restaurants in {dest}.
-    
+
+    TRAVELER PROFILE (tailor recommendations):
+    - Number of travelers: {num_travelers}
+    - Age range: {age_range}
+    - Budget level: {budget}
+
+    FILTERING RULES:
+    {"- MUST be kid-friendly (high chairs, kids menu available)" if age_range == "kids" else ""}
+    {"- Prefer quieter, romantic ambiance (NOT family-style or loud)" if num_travelers <= 2 and age_range == "adults" else ""}
+    {"- Suitable for large groups (reservations for {num_travelers}+ available)" if num_travelers >= 5 else ""}
+    {"- Accessible for seniors (ground floor or elevator, comfortable seating)" if age_range == "seniors" else ""}
+
     STRICT REQUIREMENTS (Do NOT skip any):
-    1. EXACT NAME: The official restaurant name as it appears on Google Maps.
+    1. EXACT NAME: Official restaurant name as it appears on Google Maps.
     2. FULL STREET ADDRESS: Must include street number, street name, and city.
        - GOOD: "87 Borough High Street, London SE1 1NH"
        - BAD: "Near Tower Bridge" or "Shoreditch area"
-    3. NEIGHBORHOOD: The district/area name (e.g., "Shoreditch", "Borough Market").
+    3. NEIGHBORHOOD: District/area name (e.g., "Shoreditch", "Borough Market").
     4. WEBSITE: Official website URL. Write "N/A" if not found.
     5. CUISINE: Type of food (e.g., "British Pie & Mash", "Italian", "Street Food").
     6. PRICE LEVEL: $, $$, $$$, or $$$$.
     7. GOOGLE RATING: e.g., 4.5
-    8. WHY IT FITS: How it matches {details.get('interests')} and {details.get('budget')} budget.
-    
-    Constraints to respect: {constraints}
-    
-    CRITICAL: If you cannot find a FULL STREET ADDRESS for a restaurant, DO NOT include it.
-    Only return restaurants with verified, complete addresses.
+    8. WHY IT FITS: How it matches the traveler profile above.
+
+    Additional constraints: {constraints}
+
+    CRITICAL: If you cannot find a FULL STREET ADDRESS, DO NOT include it.
+    Only return restaurants that match the traveler profile.
     """
-    
+
     try:
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        # Use getattr to safely get content from potential Response object
-        grounded_text = getattr(grounded_response, 'content', str(grounded_response))
-        
+        grounded_text = getattr(grounded_response, "content", str(grounded_response))
+
         extraction_prompt = f"""
         Extract restaurant information from this text into structured format.
         Make sure to extract the full address and website if mentioned.
-        
+
         {grounded_text}
         """
         structured_extractor = extraction_llm.with_structured_output(RestaurantList)
         result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
         data = result.items
-        
+
         log = log_usage("research_food", t0, grounded_response)
     except Exception as e:
         logger.error(f"Food Agent Error: {e}")
         data = []
         log = log_usage("research_food", t0)
-        
+
     return {"food_data": data, "debug_logs": [log]}
 
 
-def research_activity_node(state: AgentState) -> Dict:
+def research_activity_node(state: AgentState) -> dict:
     t0 = time.time()
     details = state.get("user_details", {})
     dest = details.get("destination")
-    constraints = details.get('constraints', '')
-    logger.info(f"Searching activities in {dest}...")
-    
+    constraints = details.get("constraints", "")
+
+    # === EXTRACT NEW FIELDS ===
+    age_range = details.get("age_range", "adults")
+    trip_type = details.get("trip_type")
+    num_travelers = details.get("num_travelers", 1)
+    interests = details.get("interests", "General Sightseeing")
+
+    logger.info(f"Searching activities in {dest} for {age_range} ({trip_type or 'general'} trip)...")
+
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
     extraction_llm = get_llm_for_role("extraction")
-    
+
+    # === BUILD ACTIVITY-SPECIFIC FILTERING ===
+    activity_focus = _get_activity_focus(trip_type, age_range, interests)
+
     search_prompt = f"""
     Use Google Search to find 3 REAL activities/attractions in {dest}.
-    
+
+    TRAVELER PROFILE:
+    - Age range: {age_range}
+    - Trip type: {trip_type or "general sightseeing"}
+    - Number of travelers: {num_travelers}
+    - Interests: {interests}
+
+    ACTIVITY FOCUS:
+    {activity_focus}
+
     STRICT REQUIREMENTS (Do NOT skip any):
     1. EXACT NAME: Official name as it appears on Google.
     2. FULL ADDRESS: Street address or well-known landmark location.
@@ -249,51 +593,84 @@ def research_activity_node(state: AgentState) -> Dict:
     4. WEBSITE: Official website or booking URL. Write "N/A" if not found.
     5. TYPE: Museum, Park, Historic Site, Tour, Market, etc.
     6. DURATION: How long to spend there (e.g., "2-3 hours").
-    7. DESCRIPTION: 1-2 sentences about what makes it special.
-    
-    User interests: {details.get('interests')}
+    7. DESCRIPTION: 1-2 sentences about what makes it special FOR THIS TRAVELER PROFILE.
+
     Trip duration: {details.get('duration')}
     Constraints: {constraints}
-    
-    CRITICAL: Only include attractions with verifiable addresses. No vague locations.
+
+    CRITICAL: Only include attractions suitable for {age_range} travelers.
     """
-    
+
     try:
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        # Use getattr to safely get content from potential Response object
-        grounded_text = getattr(grounded_response, 'content', str(grounded_response))
-        
+        grounded_text = getattr(grounded_response, "content", str(grounded_response))
+
         extraction_prompt = f"""
         Extract activity information from this text into structured format.
         Make sure to extract the full address and website if mentioned.
-        
+
         {grounded_text}
         """
         structured_extractor = extraction_llm.with_structured_output(ActivityList)
         result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
         data = result.items
-        
+
         log = log_usage("research_activity", t0, grounded_response)
     except Exception as e:
         logger.error(f"Activity Agent Error: {e}")
         data = []
         log = log_usage("research_activity", t0)
-        
+
     return {"activity_data": data, "debug_logs": [log]}
 
-def research_hotel_node(state: AgentState) -> Dict:
+
+def _get_activity_focus(trip_type: str | None, age_range: str, interests: str) -> str:
+    """Generate activity filtering guidance based on traveler profile."""
+
+    # Base filtering by age
+    age_filters = {
+        "kids": "- MUST be child-appropriate (playgrounds, interactive museums, zoos)\n- Avoid long walking tours or adult-only venues\n- Prefer 1-2 hour activities (short attention spans)",
+        "teens": "- Active/engaging activities (sports, adventure parks, escape rooms)\n- Social settings welcome\n- Mix of educational and fun",
+        "young_adults": "- Instagram-worthy spots\n- Nightlife/social scene options\n- Physically active options (hiking, water sports)",
+        "adults": "- Cultural depth (museums, historic sites, food tours)\n- Mix of active and relaxed pace\n- Quality over quantity",
+        "seniors": "- Accessible venues (elevators, seating available)\n- Slower pace, cultural focus\n- Avoid strenuous physical activities",
+        "mixed": "- Family-friendly (suitable for all ages)\n- Variety of intensity levels\n- Group-friendly venues",
+    }
+
+    base_filter = age_filters.get(age_range, age_filters["adults"])
+
+    # Add trip-type specific focus
+    if trip_type == "romantic":
+        base_filter += "\n- Romantic settings (sunset spots, couples activities)\n- Avoid crowded tourist traps\n- Intimate experiences preferred"
+    elif trip_type == "adventure":
+        base_filter += (
+            "\n- Outdoor/active experiences prioritized\n- Physical challenges welcome\n- Off-the-beaten-path options"
+        )
+    elif trip_type == "cultural":
+        base_filter += "\n- Museums, galleries, historic sites prioritized\n- Local workshops/classes\n- Authentic cultural experiences"
+    elif trip_type == "family":
+        base_filter += "\n- Interactive/educational for kids\n- Parent-friendly logistics (restrooms, food nearby)\n- Mix of indoor/outdoor options"
+    elif trip_type == "relaxation":
+        base_filter += (
+            "\n- Low-key, stress-free activities\n- Parks, gardens, spa experiences\n- Avoid packed schedules"
+        )
+
+    return base_filter
+
+
+def research_hotel_node(state: AgentState) -> dict:
     t0 = time.time()
     details = state.get("user_details", {})
     dest = details.get("destination")
-    constraints = details.get('constraints', '')
+    constraints = details.get("constraints", "")
     logger.info(f"Searching hotels in {dest}...")
-    
+
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
     extraction_llm = get_llm_for_role("extraction")
-    
+
     search_prompt = f"""
     Use Google Search to find 3 REAL hotels in {dest}.
-    
+
     STRICT REQUIREMENTS (Do NOT skip any):
     1. EXACT NAME: Official hotel name as listed on booking sites.
     2. FULL STREET ADDRESS: Must include street number and name.
@@ -303,55 +680,167 @@ def research_hotel_node(state: AgentState) -> Dict:
     4. WEBSITE: Official website or Booking.com link. Write "N/A" if not found.
     5. PRICE RANGE: Approximate price per night (e.g., "$120-180/night").
     6. PROS: 2-3 key advantages (location, amenities, value).
-    
+
     Budget level: {details.get('budget')}
     Constraints: {constraints}
-    
+
     CRITICAL: Only include hotels with verified, complete street addresses.
     """
-    
+
     try:
         grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
         # Use getattr to safely get content from potential Response object
-        grounded_text = getattr(grounded_response, 'content', str(grounded_response))
-        
+        grounded_text = getattr(grounded_response, "content", str(grounded_response))
+
         extraction_prompt = f"""
         Extract hotel information from this text into structured format.
         Make sure to extract the full address and website if mentioned.
-        
+
         {grounded_text}
         """
         structured_extractor = extraction_llm.with_structured_output(HotelList)
         result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
         data = result.items
-        
+
         log = log_usage("research_hotel", t0, grounded_response)
     except Exception as e:
         logger.error(f"Hotel Agent Error: {e}")
         data = []
         log = log_usage("research_hotel", t0)
-        
+
     return {"hotel_data": data, "debug_logs": [log]}
 
-async def compiler_node(state: AgentState) -> Dict:
+
+def _get_narrative_style(num_travelers: int, age_range: str, trip_type: str | None) -> str:
+    """Generate narrative tone guidance for compiler."""
+
+    style = []
+
+    # Addressing style
+    if num_travelers == 1:
+        style.append("- Address the traveler as 'you' (singular)")
+    else:
+        style.append(f"- Address as 'you' (plural) - remember there are {num_travelers} travelers")
+
+    # Tone by trip type
+    if trip_type == "romantic":
+        style.append("- Use romantic, intimate language ('your evening together', 'a cozy dinner for two')")
+        style.append("- Emphasize ambiance and special moments")
+    elif trip_type == "family":
+        style.append("- Family-friendly language ('the kids will love...', 'parents can relax while...')")
+        style.append("- Mention logistics (restrooms, snack stops, break times)")
+    elif trip_type == "adventure":
+        style.append("- Energetic, action-oriented language ('conquer', 'explore', 'challenge yourself')")
+        style.append("- Emphasize physical experiences and adrenaline")
+    elif trip_type == "business" or trip_type == "workation":
+        style.append("- Professional tone, efficient pacing")
+        style.append("- Mention wifi/workspace availability")
+    elif trip_type == "relaxation":
+        style.append("- Calm, soothing language ('unwind', 'leisurely', 'at your own pace')")
+        style.append("- Minimize packed schedules")
+    else:
+        style.append("- Balanced, informative tone")
+
+    # Pacing by age
+    if age_range == "kids" or age_range == "mixed":
+        style.append("- Build in rest breaks and flexible timing")
+        style.append("- Shorter activity blocks (1-2 hours max)")
+    elif age_range == "seniors":
+        style.append("- Emphasize comfort and accessibility")
+        style.append("- Slower pacing, more sitting/rest opportunities")
+    elif age_range == "young_adults":
+        style.append("- Pack activities densely if interests allow")
+        style.append("- Mention social/nightlife options")
+
+    return "\n".join(style)
+
+
+def _get_overview_guidance(trip_type: str | None, age_range: str, num_travelers: int) -> str:
+    """Generate guidance for Overview section."""
+
+    if trip_type == "romantic":
+        return "(Write a romantic intro: 'Your romantic escape to [dest]...', mention couple-friendly highlights)"
+    elif trip_type == "family":
+        return f"(Family-focused intro for {num_travelers} travelers, mention kid-friendly highlights and parent conveniences)"
+    elif trip_type == "adventure":
+        return "(Energetic intro highlighting outdoor activities, physical challenges, and natural beauty)"
+    elif trip_type == "business":
+        return "(Professional intro balancing work needs with cultural exploration)"
+    else:
+        return "(Brief summary of destination highlights tailored to traveler interests)"
+
+
+def _get_day_structure_guide(age_range: str, trip_type: str | None) -> str:
+    """Generate guidance for daily schedule structure."""
+
+    if age_range == "kids" or age_range == "mixed":
+        return """- **Morning:** (Kid-friendly activity, finish before lunch nap time)
+- **Lunch:** (Restaurant with kids menu, note high chairs/changing facilities)
+- **Afternoon:** (Lighter activity or hotel break for naps)
+- **Evening:** (Early dinner, family-friendly restaurant)"""
+    elif trip_type == "romantic":
+        return """- **Morning:** (Leisurely start, romantic breakfast spot)
+- **Midday:** (Couple's activity or scenic walk)
+- **Afternoon:** (Cultural site or relaxing experience)
+- **Evening:** (Romantic dinner with ambiance notes)"""
+    elif trip_type == "adventure":
+        return """- **Early Morning:** (Start early for best light/fewer crowds)
+- **Morning-Afternoon:** (Main adventure activity, 3-5 hours)
+- **Late Afternoon:** (Recovery time or lighter exploration)
+- **Evening:** (Hearty meal to refuel)"""
+    else:
+        return """- **Morning:** [Activity] (X.X km from hotel, ~Y min walk/transit)
+- **Lunch:** [Restaurant] (Address) - [Cuisine], [Price]
+- **Afternoon:** [Activity]
+- **Evening:** [Dinner spot]"""
+
+
+def _get_tips_guidance(age_range: str, trip_type: str | None, num_travelers: int) -> str:
+    """Generate guidance for Tips section."""
+
+    tips = []
+
+    if age_range == "kids" or age_range == "mixed":
+        tips.append("(Include: baby changing facilities, playgrounds nearby, kid-friendly restaurants)")
+
+    if age_range == "seniors":
+        tips.append("(Include: elevator access, rest benches, taxi/accessible transport options)")
+
+    if trip_type == "romantic":
+        tips.append("(Include: reservation tips for romantic restaurants, sunset timing, couple's spa options)")
+
+    if num_travelers >= 5:
+        tips.append("(Include: group reservation tips, split-check restaurant policies, group transport options)")
+
+    if not tips:
+        tips.append("(Standard budget tips and local customs)")
+
+    return "\n".join(tips)
+
+
+# ============================================================================
+# MAIN COMPILER NODE (REPLACES YOUR EXISTING ONE)
+# ============================================================================
+
+
+async def compiler_node(state: AgentState) -> dict:
     t0 = time.time()
     # Explicit signal to reset any streaming buffers (useful if critic loops back)
     await adispatch_custom_event("reset_itinerary", {"message": "Refining itinerary..."})
 
     logger.info("Writing itinerary draft with smart zone grouping...")
     user_details = state.get("user_details", {})
-    
+
     # Pre-format data for the LLM
     food_data = state.get("food_data") or []
     activity_data = state.get("activity_data") or []
     hotel_data = state.get("hotel_data") or []
-    logistics = state.get("logistics") or {}
-    
+
     # Convert to dicts for processing
-    food_dicts = [f.model_dump() if hasattr(f, 'model_dump') else f for f in food_data]
-    activity_dicts = [a.model_dump() if hasattr(a, 'model_dump') else a for a in activity_data]
-    hotel_dicts = [h.model_dump() if hasattr(h, 'model_dump') else h for h in hotel_data]
-    
+    food_dicts = [f.model_dump() if hasattr(f, "model_dump") else f for f in food_data]
+    activity_dicts = [a.model_dump() if hasattr(a, "model_dump") else a for a in activity_data]
+    hotel_dicts = [h.model_dump() if hasattr(h, "model_dump") else h for h in hotel_data]
+
     # Get hotel coordinates for zone calculation
     hotel_lat, hotel_lon = None, None
     selected_hotel = None
@@ -359,10 +848,10 @@ async def compiler_node(state: AgentState) -> Dict:
         selected_hotel = hotel_dicts[0]
         hotel_lat = selected_hotel.get("lat")
         hotel_lon = selected_hotel.get("lon")
-    
+
     # Group all places by proximity zones
     zone_groups = {"near": [], "medium": [], "far": [], "remote": []}
-    
+
     if hotel_lat and hotel_lon:
         # Combine activities and restaurants for grouping
         all_places = []
@@ -372,69 +861,96 @@ async def compiler_node(state: AgentState) -> Dict:
         for f in food_dicts:
             f["_type"] = "restaurant"
             all_places.append(f)
-        
+
         raw_zone_groups = group_places_by_zone(all_places, hotel_lat, hotel_lon)
-        
+
         # Programmatically optimize each zone's route before giving it to LLM
         for zone, places in raw_zone_groups.items():
             if places:
-                optimization = optimize_day_route.invoke({
-                    "places": places,
-                    "hotel_lat": hotel_lat,
-                    "hotel_lon": hotel_lon
-                })
+                optimization = optimize_day_route.invoke(
+                    {"places": places, "hotel_lat": hotel_lat, "hotel_lon": hotel_lon}
+                )
                 # Replace the raw list with the mathematically optimized order
                 zone_groups[zone] = optimization.get("optimized_order", [])
             else:
                 zone_groups[zone] = []
-    
+
     # Build pre-grouped and OPTIMIZED data for the LLM
     grouped_data = {
         "near_hotel": {
             "description": "Walking distance (< 2km, 10-25 min walk). OPTIMIZED ROUTE PROVIDED.",
-            "places": zone_groups.get("near", [])
+            "places": zone_groups.get("near", []),
         },
         "medium_distance": {
-            "description": "Short transit (2-5km, 15-20 min by bus/metro). OPTIMIZED ROUTE PROVIDED.", 
-            "places": zone_groups.get("medium", [])
+            "description": "Short transit (2-5km, 15-20 min by bus/metro). OPTIMIZED ROUTE PROVIDED.",
+            "places": zone_groups.get("medium", []),
         },
         "far_from_hotel": {
             "description": "Requires dedicated transport (5-15km, 30-45 min). OPTIMIZED ROUTE PROVIDED.",
-            "places": zone_groups.get("far", [])
+            "places": zone_groups.get("far", []),
         },
         "day_trip_territory": {
             "description": "Remote locations (15+ km, 1+ hours). OPTIMIZED ROUTE PROVIDED.",
-            "places": zone_groups.get("remote", [])
-        }
+            "places": zone_groups.get("remote", []),
+        },
     }
-    
+
     grouped_json = json.dumps(grouped_data, indent=2, ensure_ascii=False)
     hotel_json = json.dumps(hotel_dicts, indent=2, ensure_ascii=False)
-    
+
+    # ═══════════════════════════════════════════════════════════════════
+    # EXTRACT PERSONALIZATION DATA (NEW!)
+    # ═══════════════════════════════════════════════════════════════════
+    num_travelers = user_details.get("num_travelers", 1)
+    age_range = user_details.get("age_range", "adults")
+    trip_type = user_details.get("trip_type")
+    season_suggestion = state.get("season_suggestion")
+
+    # Build personalized narrative guidance
+    narrative_style = _get_narrative_style(num_travelers, age_range, trip_type)
+    overview_guidance = _get_overview_guidance(trip_type, age_range, num_travelers)
+    day_structure_guide = _get_day_structure_guide(age_range, trip_type)
+    tips_guidance = _get_tips_guidance(age_range, trip_type, num_travelers)
+
     chat_llm = get_llm_for_role("compiler")
-    
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PERSONALIZED PROMPT (NEW VERSION!)
+    # ═══════════════════════════════════════════════════════════════════
     prompt = f"""
 You are writing a practical travel itinerary for a trip to {user_details.get('destination')}.
 
-TRAVELER INFO:
+═══════════════════════════════════════════════════════════════
+TRAVELER PROFILE (use this to personalize the narrative)
+═══════════════════════════════════════════════════════════════
 - Departing from: {user_details.get('start_location', 'their home location')}
+- Number of travelers: {num_travelers}
+- Age range: {age_range}
+- Trip type: {trip_type or "general sightseeing"}
 - Duration: {user_details.get('duration')}
 - Budget: {user_details.get('budget')}
 - Interests: {user_details.get('interests')}
 
-ACCOMMODATION OPTIONS:
+{f"🌍 TIMING RECOMMENDATION: {season_suggestion}" if season_suggestion else ""}
+
+═══════════════════════════════════════════════════════════════
+NARRATIVE STYLE GUIDE
+═══════════════════════════════════════════════════════════════
+{narrative_style}
+
+═══════════════════════════════════════════════════════════════
+ACCOMMODATION OPTIONS
+═══════════════════════════════════════════════════════════════
 {hotel_json}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📍 PRE-GROUPED PLACES BY PROXIMITY (USE THIS FOR DAY PLANNING!)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+═══════════════════════════════════════════════════════════════
+🗺️ PRE-GROUPED PLACES BY PROXIMITY (USE THIS FOR DAY PLANNING!)
+═══════════════════════════════════════════════════════════════
 {grouped_json}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 CRITICAL RULES FOR SMART ITINERARY:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+═══════════════════════════════════════════════════════════════
+🎯 CRITICAL RULES FOR SMART ITINERARY
+═══════════════════════════════════════════════════════════════
 1. **USE THE ZONE GROUPS ABOVE!** Each day should focus on ONE zone:
    - Day 1: Explore "near_hotel" places (easy start, jet lag friendly)
    - Day 2: Tackle "medium_distance" zone
@@ -451,74 +967,87 @@ ACCOMMODATION OPTIONS:
 
 4. **BE SPECIFIC:** Use exact names, addresses from the data above.
 
-5. **REMOTE LOCATIONS WARNING:** If using "day_trip_territory" places, add a note:
+5. **PERSONALIZE FOR TRAVELER PROFILE:**
+   - Adjust pacing based on age_range
+   - Match activity difficulty to trip_type
+   - Use appropriate language tone (romantic vs family vs adventure)
+
+6. **REMOTE LOCATIONS WARNING:** If using "day_trip_territory" places, add a note:
    "⚠️ This is a day trip - allow extra travel time"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT (Markdown)
+═══════════════════════════════════════════════════════════════
 
-OUTPUT FORMAT (Markdown):
-
-# {user_details.get('duration', 'Your')} Trip to {user_details.get('destination')}
+# {user_details.get('duration', 'Your')} {trip_type.title() if trip_type else ''} Trip to {user_details.get('destination')}
 
 ## Overview
-(Brief summary + travel style based on budget)
+{overview_guidance}
+
+{f"## 🌤️ Best Time to Visit\\n{season_suggestion}\\n" if season_suggestion else ""}
 
 ## Recommended Accommodation
-(Pick ONE hotel, explain why, include address)
+(Pick ONE hotel that matches the traveler profile - explain why it fits their needs)
 
 ## Day-by-Day Itinerary
 
-### Day 1: [Zone Theme - e.g., "Exploring the Hotel Neighborhood"]
-- **Morning:** [Activity] (X.X km from hotel, ~Y min walk/transit)
-- **Lunch:** [Restaurant] (Address) - [Cuisine], [Price]
-- **Afternoon:** [Activity]
-- **Evening:** [Dinner spot]
+### Day 1: [Zone Theme - e.g., "Settling In Near Your Hotel"]
+{day_structure_guide}
 
 ### Day 2: [Zone Theme]
-...continue for each day...
+(Continue for each day, following the zone grouping strategy)
 
 ## Getting There & Transport
 (How to get from {user_details.get('start_location')} to {user_details.get('destination')})
 
 ## Tips & Budget Notes
+{tips_guidance}
 
+═══════════════════════════════════════════════════════════════
 Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code blocks. No preamble.
 """
+
     # Check if we should use ReAct Agent mode
     if USE_REACT_AGENT:
         draft, log = await _run_compiler_agent(user_details, hotel_dicts, grouped_data, t0)
     else:
         response = await chat_llm.ainvoke(
-            [SystemMessage(content="You are a Travel Editor specializing in efficient, logical itineraries."), HumanMessage(content=prompt)],
-            config={"tags": ["final_itinerary"]}
+            [
+                SystemMessage(content="You are a Travel Editor specializing in efficient, logical itineraries."),
+                HumanMessage(content=prompt),
+            ],
+            config={"tags": ["final_itinerary"]},
         )
         draft = response.content
         log = log_usage("compiler", t0, response)
-    
+
     return {
         "draft_itinerary": draft,
         "iteration_count": state.get("iteration_count", 0) + 1,
         "next_node": "critic",
-        "debug_logs": [log]
+        "debug_logs": [log],
     }
 
 
-async def _run_compiler_agent(user_details: Dict, hotel_dicts: List, grouped_data: Dict, t0: float) -> tuple:
+# ============================================================================
+# REACT AGENT VERSION (unchanged from your original)
+# ============================================================================
+
+
+async def _run_compiler_agent(user_details: dict, hotel_dicts: list, grouped_data: dict, t0: float) -> tuple:
     """
     ReAct Agent version of the compiler.
     Uses tools to verify and optimize the route before writing.
     """
     logger.info("Running ReAct Agent Compiler with tools...")
-    
-    from langchain_core.messages import AIMessage
-    
+
     # Get LLM with tools
     llm_with_tools = get_llm_with_tools(TRAVEL_TOOLS)
-    
+
     # Build context
     hotel_json = json.dumps(hotel_dicts[:1], indent=2, ensure_ascii=False) if hotel_dicts else "{}"
     grouped_json = json.dumps(grouped_data, indent=2, ensure_ascii=False)
-    
+
     agent_prompt = f"""
 You are Atlas, a Travel Planner Agent with access to tools for route optimization.
 
@@ -547,35 +1076,34 @@ YOUR WORKFLOW:
 OUTPUT FORMAT (After using tools):
 Write a complete Markdown itinerary with:
 - Overview
-- Recommended Accommodation  
+- Recommended Accommodation
 - Day-by-Day Itinerary (using optimized routes)
 - Getting There & Transport
 - Tips & Budget Notes
 
 Start by analyzing the zones and calling optimize_day_route if needed.
 """
-    
+
     messages = [
-        SystemMessage(content="You are a Travel Planner Agent. Use tools to optimize routes, then write the itinerary."),
-        HumanMessage(content=agent_prompt)
+        SystemMessage(
+            content="You are a Travel Planner Agent. Use tools to optimize routes, then write the itinerary."
+        ),
+        HumanMessage(content=agent_prompt),
     ]
-    
+
     # Agent loop (max 3 iterations for tool use)
     max_iterations = 3
-    for i in range(max_iterations):
-        response = await llm_with_tools.ainvoke(
-            messages,
-            config={"tags": ["final_itinerary"]}
-        )
+    for _ in range(max_iterations):
+        response = await llm_with_tools.ainvoke(messages, config={"tags": ["final_itinerary"]})
         messages.append(response)
-        
+
         # Check if there are tool calls
-        if hasattr(response, 'tool_calls') and response.tool_calls:
+        if hasattr(response, "tool_calls") and response.tool_calls:
             # Execute tools
             for tool_call in response.tool_calls:
                 tool_name = tool_call.get("name")
                 tool_args = tool_call.get("args", {})
-                
+
                 # Find and execute the tool
                 tool_result = None
                 for tool in TRAVEL_TOOLS:
@@ -585,75 +1113,70 @@ Start by analyzing the zones and calling optimize_day_route if needed.
                         except Exception as e:
                             tool_result = f"Error: {e}"
                         break
-                
+
                 if tool_result is None:
                     tool_result = f"Unknown tool: {tool_name}"
-                
+
                 # Add tool result to messages
                 from langchain_core.messages import ToolMessage
-                messages.append(ToolMessage(
-                    content=str(tool_result),
-                    tool_call_id=tool_call.get("id", "")
-                ))
+
+                messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call.get("id", "")))
         else:
             # No more tool calls, we have the final response
             break
-    
+
     # Extract final content
-    draft = response.content if hasattr(response, 'content') else str(response)
+    draft = response.content if hasattr(response, "content") else str(response)
     log = log_usage("compiler_agent", t0, response)
-    
+
     return draft, log
 
 
-def critic_node(state: AgentState) -> Dict:
+def critic_node(state: AgentState) -> dict:
     t0 = time.time()
     draft = state.get("draft_itinerary", "")
     user_details = state.get("user_details", {})
     logger.info("Reviewing itinerary draft...")
-    
+
     extraction_llm = get_llm_for_role("extraction")
     structured_critic = extraction_llm.with_structured_output(ItineraryCritique)
-    
+
     prompt = f"""
     Critique this itinerary for a trip to {user_details.get('destination')}.
-    
+
     CHECKLIST:
     1. Logic Gaps: Are there transport options from {user_details.get('start_location')}?
     2. Data Quality: Are the restaurants and activities specific and real (not generic)?
     3. User Needs: Does it respect the budget ({user_details.get('budget')}) and interests ({user_details.get('interests')})?
-    
+
     If data for food, activities, or hotels is missing, poor quality, or irrelevant, list them in 'missing_data'.
     If 'missing_data' is NOT empty, 'approved' MUST be False.
 
     ITINERARY:
     {draft}
     """
-    
+
     try:
         result = structured_critic.invoke([HumanMessage(content=prompt)])
         critique = result.model_dump()
         log = log_usage("critic", t0, result)
-        
+
         # Determine next step
         if critique.get("approved"):
             next_node = "approved"
         elif critique.get("missing_data"):
             next_node = "research"
         else:
-            next_node = "compiler" # Just a rewrite needed
-            
+            next_node = "compiler"  # Just a rewrite needed
+
     except Exception as e:
         logger.error(f"Critic Error: {e}")
         critique = {"approved": True, "feedback": "Auto Approved (Critic Error)", "score": 10, "missing_data": []}
         next_node = "approved"
         log = log_usage("critic", t0)
-        
-    return {
-        "critique": critique,
-        "next_node": next_node,
-        "debug_logs": [log]
-    }
+
+    return {"critique": critique, "next_node": next_node, "debug_logs": [log]}
+
 
 workflow = StateGraph(AgentState)
 
@@ -667,44 +1190,57 @@ workflow.add_node("critic", critic_node)
 
 workflow.set_entry_point("interviewer")
 
+
 def router(state: AgentState):
     next_node = state.get("next_node")
-    
+
     # CRITICAL FIX: Loop Breaker - "Good Enough" Logic
     if state.get("iteration_count", 0) >= 3:
-        return END 
+        return END
 
     if next_node == "research":
         critique = state.get("critique", {})
         missing = critique.get("missing_data", [])
         user_details = state.get("user_details", {})
         focus = user_details.get("focus", [])
-        
+
         # 1. If Critic identified missing data, prioritize that
         if missing:
             targets = []
-            if "food" in missing: targets.append("research_food")
-            if "activities" in missing: targets.append("research_activity")
-            if "hotels" in missing: targets.append("research_hotel")
+            if "food" in missing:
+                targets.append("research_food")
+            if "activities" in missing:
+                targets.append("research_activity")
+            if "hotels" in missing:
+                targets.append("research_hotel")
             return targets
-        
+
         # 2. If it's the initial run and User has specific focus
         if focus:
             targets = []
-            if "food" in focus: targets.append("research_food")
-            if "activities" in focus: targets.append("research_activity")
-            if "hotels" in focus: targets.append("research_hotel")
-            if targets: return targets
+            if "food" in focus:
+                targets.append("research_food")
+            if "activities" in focus:
+                targets.append("research_activity")
+            if "hotels" in focus:
+                targets.append("research_hotel")
+            if targets:
+                return targets
 
         # 3. Default: run all
         return ["research_food", "research_activity", "research_hotel"]
 
-    if next_node == "interviewer": return END
-    if next_node == "approved": return END
-    if next_node == "critic": return "critic"
-    if next_node == "compiler": return "compiler" 
-    
+    if next_node == "interviewer":
+        return END
+    if next_node == "approved":
+        return END
+    if next_node == "critic":
+        return "critic"
+    if next_node == "compiler":
+        return "compiler"
+
     return END
+
 
 workflow.add_conditional_edges("interviewer", router)
 workflow.add_edge("research_food", "logistics")
