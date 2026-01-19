@@ -63,3 +63,8 @@ ignore_missing_imports = true  # Za biblioteke bez type stubs
 [[tool.mypy.overrides]]
 module = "tests.*"
 ignore_errors = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-p no:warnings"
+asyncio_mode = "auto"

@@ -13,3 +13,5 @@ rich
 datasets
 geopy
 pgvector
+pytest
+pytest-asyncio

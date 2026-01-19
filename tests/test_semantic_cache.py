@@ -5,14 +5,14 @@ from core.database import SessionLocal
 
 load_dotenv()
 
-print("🔍 Testing semantic_cache connection...")
+print("Testing semantic_cache connection...")
 
 db = SessionLocal()
 
 try:
     # Test 1: Count rows
     count = db.execute(text("SELECT COUNT(*) FROM semantic_cache")).scalar()
-    print(f"✅ semantic_cache has {count} entries")
+    print(f"semantic_cache has {count} entries")
 
     # Test 2: Select all
     results = db.execute(
@@ -24,12 +24,12 @@ try:
         )
     ).fetchall()
 
-    print("\n📋 Cache entries:")
+    print("\nCache entries:")
     for row in results:
         print(f"  - {row[0]}: {row[1]} ({row[2]} in {row[3]})")
 
     # Test 3: Test vector query
-    print("\n🧪 Testing vector similarity...")
+    print("\nTesting vector similarity...")
     similarity_test = db.execute(
         text(
             """
@@ -43,12 +43,23 @@ try:
     ).fetchone()
 
     if similarity_test:
-        print(f"✅ Vector search works! Similarity: {similarity_test[1]:.4f}")
+        print(f"Vector search works! Similarity: {similarity_test[1]:.4f}")
 
-    print("\n🎉 All tests passed!")
+    # Test 4: EXPLAIN ANALYZE
+    print("\nChecking query plan (EXPLAIN ANALYZE)...")
+    # Using a dummy vector for analysis
+    dummy_vec = "[" + ",".join(["0.1"] * 768) + "]"
+    explain_query = text(
+        "EXPLAIN ANALYZE SELECT id, 1 - (query_embedding <=> CAST(:query_vec AS vector)) as sim FROM semantic_cache"
+    )
+    explain_results = db.execute(explain_query, {"query_vec": dummy_vec}).fetchall()
+    for row in explain_results:
+        print(f"  {row[0]}")
+
+    print("\nAll tests passed!")
 
 except Exception as e:
-    print(f"❌ Error: {e}")
+    print(f"Error: {e}")
 
 finally:
     db.close()

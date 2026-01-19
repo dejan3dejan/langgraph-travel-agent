@@ -5,7 +5,7 @@ FIXED: Parameter binding for vector operations
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from sqlalchemy import text
@@ -14,6 +14,18 @@ from .database import SessionLocal
 from .logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class CacheError(Exception):
+    """Custom exception for semantic cache errors."""
+
+    pass
+
+
+def to_pgvector(vec: list[float]) -> str:
+    """Convert a list of floats to a pgvector string representation."""
+    return "[" + ",".join(map(str, vec)) + "]"
+
 
 # Initialize Embeddings (Gemini text-embedding-004)
 embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", task_type="retrieval_document")
@@ -40,30 +52,28 @@ async def semantic_search(
     Returns:
         Cache hit dict or None
     """
-    logger.info(f"🔍 Self-Reflection: Checking semantic cache for '{query}'...")
+    logger.info(f"Self-Reflection: Checking semantic cache for '{query}'...")
+    db = None
 
     try:
         # 1. Generate query embedding
         query_vec = await embeddings.aembed_query(query)
 
-        # 2. Convert list to PostgreSQL array format
-        query_vec_str = "[" + ",".join(map(str, query_vec)) + "]"
-
-        # 3. Search PGVector with filters
+        # 2. Search PGVector with filters
         db = SessionLocal()
-        cutoff_date = datetime.utcnow() - timedelta(days=max_age_days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=max_age_days)
 
-        # FIX: Use string formatting for vector cast, params for others
+        # FIX: Use CAST(:query_vec AS vector)
         sql_query = text(
-            f"""
+            """
             SELECT
                 id, query_text, results, created_at, use_count,
-                1 - (query_embedding <=> '{query_vec_str}'::vector) as similarity
+                1 - (query_embedding <=> CAST(:query_vec AS vector)) as similarity
             FROM semantic_cache
             WHERE category = :category
               AND destination = :destination
               AND created_at > :cutoff_date
-              AND 1 - (query_embedding <=> '{query_vec_str}'::vector) > :threshold
+              AND 1 - (query_embedding <=> CAST(:query_vec AS vector)) > :threshold
             ORDER BY similarity DESC
             LIMIT 1
         """
@@ -72,6 +82,7 @@ async def semantic_search(
         result = db.execute(
             sql_query,
             {
+                "query_vec": to_pgvector(query_vec),
                 "category": category,
                 "destination": destination,
                 "cutoff_date": cutoff_date,
@@ -81,10 +92,15 @@ async def semantic_search(
 
         if result:
             cache_id, original_query, cached_results, created, uses, similarity = result
-            age_days = (datetime.utcnow() - created).days
+
+            # Ensure created is timezone-aware (DB returns naive UTC)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+
+            age_days = (datetime.now(UTC) - created).days
 
             logger.info(
-                f"✅ CACHE HIT! Similarity: {similarity:.2%}, "
+                f"CACHE HIT! Similarity: {similarity:.2%}, "
                 f"Age: {age_days}d, Uses: {uses}, "
                 f"Original: '{original_query}'"
             )
@@ -97,7 +113,7 @@ async def semantic_search(
                 WHERE id = :id
             """
             )
-            db.execute(update_sql, {"now": datetime.utcnow(), "id": cache_id})
+            db.execute(update_sql, {"now": datetime.now(UTC), "id": cache_id})
             db.commit()
 
             return {
@@ -109,7 +125,7 @@ async def semantic_search(
                 "original_query": original_query,
             }
         else:
-            logger.info("❌ CACHE MISS - Will trigger Google Search")
+            logger.info("CACHE MISS - Will trigger Google Search")
             return None
 
     except Exception as e:
@@ -117,9 +133,10 @@ async def semantic_search(
         import traceback
 
         logger.error(traceback.format_exc())
-        return None
+        raise CacheError(f"Semantic search failed: {e}") from e
     finally:
-        db.close()
+        if db:
+            db.close()
 
 
 async def cache_research_results(
@@ -142,16 +159,16 @@ async def cache_research_results(
         logger.warning("No results to cache")
         return False
 
-    logger.info(f"💾 Caching {len(results)} {category} for '{destination}'...")
+    logger.info(f"Caching {len(results)} {category} for '{destination}'...")
+    db = None
 
     try:
         # 1. Generate embedding
         query_vec = await embeddings.aembed_query(query)
-        query_vec_str = "[" + ",".join(map(str, query_vec)) + "]"
 
         # 2. Calculate quality metric
         ratings = [r.get("rating", 0) for r in results if r.get("rating")]
-        avg_rating = int(sum(ratings) / len(ratings) * 10) if ratings else 0
+        avg_rating = sum(ratings) / len(ratings) if ratings else 0
 
         # 3. Generate unique ID
         cache_id = f"{category}_{destination}_{hash(query)}"
@@ -159,15 +176,15 @@ async def cache_research_results(
         # 4. Insert or update cache entry
         db = SessionLocal()
 
-        # FIX: Use f-string for vector, params for others
+        # FIX: Use CAST(:query_vec AS vector), remove created_at from update
         upsert_sql = text(
-            f"""
+            """
             INSERT INTO semantic_cache (
                 id, query_text, query_embedding, category, destination,
                 results, result_count, avg_rating, freshness_days,
                 created_at, last_used, use_count
             ) VALUES (
-                :id, :query_text, '{query_vec_str}'::vector, :category, :destination,
+                :id, :query_text, CAST(:query_vec AS vector), :category, :destination,
                 :results, :result_count, :avg_rating, :freshness_days,
                 :created_at, :last_used, :use_count
             )
@@ -177,7 +194,6 @@ async def cache_research_results(
                 results = EXCLUDED.results,
                 result_count = EXCLUDED.result_count,
                 avg_rating = EXCLUDED.avg_rating,
-                created_at = EXCLUDED.created_at,
                 use_count = 0
         """
         )
@@ -187,22 +203,21 @@ async def cache_research_results(
             {
                 "id": cache_id,
                 "query_text": query,
+                "query_vec": to_pgvector(query_vec),
                 "category": category,
                 "destination": destination,
                 "results": json.dumps(results, ensure_ascii=False),
                 "result_count": len(results),
                 "avg_rating": avg_rating,
                 "freshness_days": freshness_days,
-                "created_at": datetime.utcnow(),
-                "last_used": datetime.utcnow(),
+                "created_at": datetime.now(UTC),
+                "last_used": datetime.now(UTC),
                 "use_count": 0,
             },
         )
 
         db.commit()
-        db.close()
-
-        logger.info(f"✅ Cached successfully (avg rating: {avg_rating/10:.1f})")
+        logger.info(f"Cached successfully (avg rating: {avg_rating/10:.1f})")
         return True
 
     except Exception as e:
@@ -210,7 +225,10 @@ async def cache_research_results(
         import traceback
 
         logger.error(traceback.format_exc())
-        return False
+        raise CacheError(f"Failed to cache results: {e}") from e
+    finally:
+        if db:
+            db.close()
 
 
 def get_cache_stats(destination: str | None = None) -> dict:
@@ -220,7 +238,7 @@ def get_cache_stats(destination: str | None = None) -> dict:
         if destination:
             sql = text(
                 """
-                SELECT category, COUNT(*), SUM(use_count), AVG(avg_rating/10.0)
+                SELECT category, COUNT(*), SUM(use_count), AVG(avg_rating)
                 FROM semantic_cache
                 WHERE destination = :destination
                 GROUP BY category
@@ -230,7 +248,7 @@ def get_cache_stats(destination: str | None = None) -> dict:
         else:
             sql = text(
                 """
-                SELECT category, COUNT(*), SUM(use_count), AVG(avg_rating/10.0)
+                SELECT category, COUNT(*), SUM(use_count), AVG(avg_rating)
                 FROM semantic_cache
                 GROUP BY category
             """
@@ -304,11 +322,11 @@ async def progressive_refresh(cache_hit: dict, category: str, search_func) -> li
 
     # If data is <14 days old, just use cache
     if age_days < 14:
-        logger.info("📦 Using 100% cache (fresh enough)")
+        logger.info("Using 100% cache (fresh enough)")
         return cached_results
 
     # If 14-30 days old, add 1 fresh result
-    logger.info("🔄 Progressive refresh: 80% cache + 20% new search")
+    logger.info("Progressive refresh: 80% cache + 20% new search")
 
     try:
         # Search for just 1 new result

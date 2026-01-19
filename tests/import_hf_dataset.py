@@ -4,6 +4,8 @@ import random
 
 from datasets import load_dataset
 
+random.seed(42)
+
 
 def convert_hf_dataset(output_path="tests/dataset.json", num_samples=200):
     print("Loading osunlp/TravelPlanner (validation set)...")

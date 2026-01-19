@@ -1,10 +1,10 @@
 import os
 
-from dotenv import load_dotenv  # ⬅️ DODAJ OVO!
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 # Load environment variables FIRST
-load_dotenv()  # ⬅️ KRITIČNO!
+load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -14,29 +14,29 @@ if not DATABASE_URL:
         "Expected format: DATABASE_URL=postgresql://user:pass@host:port/dbname"
     )
 
-print(f"✅ DATABASE_URL loaded: {DATABASE_URL[:30]}...")  # Debug print
+print(f"DATABASE_URL loaded: {DATABASE_URL[:30]}...")  # Debug print
 
 engine = create_engine(DATABASE_URL)
 
 
 def migrate():
-    print("🚀 Starting migration...")
+    print("Starting migration...")
 
     with engine.connect() as conn:
         # 1. Enable extension
-        print("📦 Enabling PGVector extension...")
+        print("Enabling PGVector extension...")
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        print("✅ PGVector enabled")
+        print("PGVector enabled")
 
         # 2. Create table
-        print("🗄️  Creating semantic_cache table...")
+        print("Creating semantic_cache table...")
         conn.execute(
             text(
                 """
             CREATE TABLE IF NOT EXISTS semantic_cache (
                 id VARCHAR PRIMARY KEY,
                 query_text TEXT,
-                query_embedding vector(768),
+                query_embedding vector,
                 category VARCHAR,
                 destination VARCHAR,
                 results TEXT,
@@ -44,16 +44,16 @@ def migrate():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 use_count INTEGER DEFAULT 0,
-                avg_rating INTEGER,
+                avg_rating FLOAT,
                 freshness_days INTEGER
             )
         """
             )
         )
-        print("✅ Table created")
+        print("Table created")
 
         # 3. Create indexes
-        print("🔍 Creating indexes...")
+        print("Creating indexes...")
 
         # Regular indexes first
         conn.execute(
@@ -64,7 +64,7 @@ def migrate():
         """
             )
         )
-        print("  ✅ Category index")
+        print("  Category index")
 
         conn.execute(
             text(
@@ -74,7 +74,7 @@ def migrate():
         """
             )
         )
-        print("  ✅ Destination index")
+        print("  Destination index")
 
         conn.execute(
             text(
@@ -84,7 +84,7 @@ def migrate():
         """
             )
         )
-        print("  ✅ Created_at index")
+        print("  Created_at index")
 
         # Vector index (needs data to build properly)
         try:
@@ -98,10 +98,10 @@ def migrate():
             """
                 )
             )
-            print("  ✅ Vector index (IVFFlat)")
+            print("  Vector index (IVFFlat)")
         except Exception as e:
-            print(f"  ⚠️  Vector index skipped (will auto-create after 10k rows): {e}")
+            print(f"  Vector index skipped (will auto-create after 10k rows): {e}")
 
         conn.commit()
 
-    print("\n🎉 Migration completed successfully!")
+    print("\nMigration completed successfully!")

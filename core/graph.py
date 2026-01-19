@@ -240,9 +240,9 @@ PHASE 4: VERIFICATION (Immediate Extraction Check)
 DO NOT WRITE CONVERSATIONAL RESPONSES IF YOU HAVE DATA!
 
 Check if you have the MINIMUM requirements:
-1. ✅ Destination (City, State, Region, or Country - ANY is OK!)
-2. ✅ Duration (Days OR date range)
-3. ✅ Budget (Amount, Level, OR assume Medium if trip is detailed)
+1. Destination (City, State, Region, or Country - ANY is OK!)
+2. Duration (Days OR date range)
+3. Budget (Amount, Level, OR assume Medium if trip is detailed)
 
 IF ALL 3 ARE PRESENT → YOU MUST OUTPUT "PLANNING_STARTED" IMMEDIATELY.
 
@@ -313,9 +313,9 @@ CRITICAL RULES
 
     log = log_usage("interviewer", t0, response if not force_extraction else None)
 
-    # ═══════════════════════════════════════════════════════════════════
-    # 🔥 AGGRESSIVE EXTRACTION CHECK (Override conversational mode)
-    # ═══════════════════════════════════════════════════════════════════
+    # -------------------------------------------------------------------
+    # AGGRESSIVE EXTRACTION CHECK (Override conversational mode)
+    # -------------------------------------------------------------------
     # If LLM didn't say PLANNING_STARTED but we have enough data, force it
     if "PLANNING_STARTED" not in content.upper():
         # Quick heuristic: check last user message for destination + duration signals
@@ -367,7 +367,7 @@ CRITICAL RULES
 
         # If both are present in the FIRST user message, force extraction
         if has_destination and has_duration and interview_count == 1:
-            logger.info("🔥 FORCING EXTRACTION: First message contains destination + duration")
+            logger.info("FORCING EXTRACTION: First message contains destination + duration")
             content = "PLANNING_STARTED"
 
     # ═══════════════════════════════════════════════════════════════════

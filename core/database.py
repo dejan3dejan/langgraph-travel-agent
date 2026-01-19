@@ -4,13 +4,12 @@ Database configuration and session management.
 
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String, Text, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from .logger import get_logger
 
@@ -48,8 +47,8 @@ class ChatSession(Base):
     session_id = Column(String, primary_key=True, index=True)
     user_id = Column(String, index=True, nullable=True)
     data = Column(JSON)  # Chat History
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 
 class Trip(Base):
@@ -69,7 +68,7 @@ class Trip(Base):
     # The Full Result
     itinerary_text = Column(Text)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class GeocodingCache(Base):
@@ -81,7 +80,7 @@ class GeocodingCache(Base):
     lat = Column(Float, nullable=True)
     lon = Column(Float, nullable=True)
     status = Column(String)  # "exact", "neighborhood", "failed"
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class SemanticCache(Base):
@@ -93,7 +92,7 @@ class SemanticCache(Base):
 
     # Query Info
     query_text = Column(Text, index=True)
-    query_embedding = Column(Vector(768))  # ⬅️ OVO JE KLJUČNO!
+    query_embedding = Column(Vector(None))  # Changed from Vector(768)
 
     # Categorization
     category = Column(String, index=True)
@@ -104,8 +103,8 @@ class SemanticCache(Base):
     result_count = Column(Float)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    last_used = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    last_used = Column(DateTime, default=lambda: datetime.now(UTC))
     use_count = Column(Float, default=0)
 
     # Quality Metrics
@@ -123,7 +122,7 @@ def enable_pgvector():
         try:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             conn.commit()
-            logger.info("✅ PGVector extension enabled")
+            logger.info("PGVector extension enabled")
         except Exception as e:
             logger.error(f"Failed to enable PGVector: {e}")
             raise
@@ -139,21 +138,21 @@ def init_db():
     # 2. Create all tables
     logger.info("Creating database tables...")
     Base.metadata.create_all(bind=engine)
-    logger.info("✅ Database tables created successfully")
+    logger.info("Database tables created successfully")
 
     # 3. List created tables
     from sqlalchemy import inspect
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
-    logger.info(f"📋 Tables in database: {', '.join(tables)}")
+    logger.info(f"Tables in database: {', '.join(tables)}")
 
     # 4. Create vector indexes (optional, only if table exists)
     try:
         create_vector_indexes()
     except Exception as e:
         logger.warning(f"Vector index creation skipped: {e}")
-        logger.info("💡 Vector indexes will be created after first cache entries")
+        logger.info("Vector indexes will be created after first cache entries")
 
 
 def get_db():
@@ -208,7 +207,7 @@ def create_vector_indexes():
                 )
             )
             conn.commit()
-            logger.info("✅ Vector indexes created")
+            logger.info("Vector indexes created")
         except Exception as e:
             logger.warning(f"Index creation failed: {e}")
-            logger.info("💡 This is OK - index will be created when you have more data")
+            logger.info("This is OK - index will be created when you have more data")
