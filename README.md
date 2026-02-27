@@ -55,7 +55,7 @@ The system implements a self-reflection layer:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/travel-companion.git
+git clone https://github.com/dejan3dejan/travel-companion.git
 cd travel-companion
 ```
 
