@@ -4,12 +4,13 @@ from typing import Any
 
 from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, START, StateGraph
 
 from .llm import USE_REACT_AGENT, get_llm_for_role, get_llm_with_tools
 from .logger import get_logger
 from .logistics import logistics_agent
 from .schemas import ActivityList, HotelList, ItineraryCritique, RestaurantList, UserPreferences
+from .semantic_cache import cache_research_results, semantic_search, should_use_cache
 from .state import AgentState
 from .tools import TRAVEL_TOOLS, group_places_by_zone, optimize_day_route
 
@@ -129,6 +130,27 @@ def _get_tips_guidance(age_range: str, trip_type: str | None, num_travelers: int
         tips.append("(Standard budget tips and local customs)")
 
     return "\n".join(tips)
+
+
+def _get_activity_focus(trip_type: str, age_range: str, interests: str) -> str:
+    """
+    Returns a string summary of what kind of activities to focus on,
+    based on trip type, age range, and interests.
+    """
+    focus = []
+    if trip_type:
+        focus.append(trip_type)
+    if "art" in interests.lower():
+        focus.append("art")
+    if "history" in interests.lower():
+        focus.append("history")
+    if age_range.lower() == "adults":
+        focus.append("adult-friendly")
+    elif age_range.lower() == "children":
+        focus.append("kid-friendly")
+    elif age_range.lower() == "seniors":
+        focus.append("senior-friendly")
+    return ", ".join(focus) if focus else "general sightseeing"
 
 
 def log_usage(node_name: str, start_time: float, response: Any = None) -> dict:
@@ -388,6 +410,9 @@ EXTRACTION RULES:
 6. If user mentions timing preferences (cheap, off-season), set season_preference
 7. Auto-fill interests if missing with "General Sightseeing"
 8. Extract budget from context (if not mentioned, use "Medium")
+9. MULTI-DESTINATION: If the user mentions multiple cities/regions (e.g. "Paris and Rome",
+   "Barcelona then Lisbon", "tour of Italy and Greece"), set `destinations` to the ordered list
+   AND set `destination` to the first one. If only one destination, leave `destinations` empty.
 
 CONVERSATION:
 """
@@ -405,6 +430,15 @@ CONVERSATION:
             # Final safety check for start_location
             if not user_details.get("start_location"):
                 user_details["start_location"] = "the user's current location"
+
+            # Normalize multi-destination: ensure destination is always first in list
+            dests = user_details.get("destinations") or []
+            primary = user_details.get("destination", "")
+            if dests and primary and primary not in dests:
+                dests.insert(0, primary)
+            elif not dests and primary:
+                dests = []  # single destination — keep destinations empty
+            user_details["destinations"] = dests
 
             # Generate season suggestion if dates are flexible
             season_suggestion = None
@@ -480,96 +514,139 @@ CONVERSATION:
     }
 
 
-def research_food_node(state: AgentState) -> dict:
-    t0 = time.time()
-    details = state.get("user_details", {})
-    dest = details.get("destination")
-    constraints = details.get("constraints", "")
+def _get_destinations(details: dict) -> list[str]:
+    """Return list of destinations to research (supports multi-destination)."""
+    dests = details.get("destinations") or []
+    primary = details.get("destination", "")
+    if dests:
+        return dests
+    return [primary] if primary else []
 
-    # === EXTRACT NEW FIELDS ===
+
+async def _research_food_for_dest(dest: str, details: dict) -> list:
+    """Research restaurants for a single destination."""
+    from .schemas import Restaurant
+
+    constraints = details.get("constraints", "")
     num_travelers = details.get("num_travelers", 1)
     age_range = details.get("age_range", "adults")
     budget = details.get("budget", "Medium")
 
-    logger.info(f"Searching restaurants in {dest} for {num_travelers} {age_range} travelers...")
+    search_query = f"best restaurants in {dest} for {age_range} {budget} budget"
+
+    cache_hit = await semantic_search(
+        query=search_query, category="restaurants", destination=dest, similarity_threshold=0.80, max_age_days=30
+    )
+    use_cache, reason = await should_use_cache(cache_hit, "restaurants")
+
+    if use_cache and cache_hit:
+        logger.info(f"[{dest}] Cache hit for restaurants ({reason})")
+        return [Restaurant(**item) for item in cache_hit["results"]]
+
+    logger.info(f"[{dest}] Cache miss for restaurants — searching Google...")
 
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
-    extraction_llm = get_llm_for_role("extraction")
+    age_filters = {
+        "kids": "- MUST be kid-friendly (high chairs, kids menu)",
+        "seniors": "- Accessible (ground floor or elevator, comfortable seating)",
+        "young_adults": "- Trendy, Instagram-worthy spots welcome",
+    }.get(age_range, "")
 
-    # === BUILD SMART SEARCH PROMPT ===
     search_prompt = f"""
     Use Google Search to find 3 REAL, currently operating restaurants in {dest}.
 
-    TRAVELER PROFILE (tailor recommendations):
+    TRAVELER PROFILE:
     - Number of travelers: {num_travelers}
     - Age range: {age_range}
     - Budget level: {budget}
 
     FILTERING RULES:
-    {"- MUST be kid-friendly (high chairs, kids menu available)" if age_range == "kids" else ""}
-    {"- Prefer quieter, romantic ambiance (NOT family-style or loud)" if num_travelers <= 2 and age_range == "adults" else ""}
-    {"- Suitable for large groups (reservations for {num_travelers}+ available)" if num_travelers >= 5 else ""}
-    {"- Accessible for seniors (ground floor or elevator, comfortable seating)" if age_range == "seniors" else ""}
+    {age_filters}
+    {"- Group-friendly (reservations for " + str(num_travelers) + "+)" if num_travelers >= 5 else ""}
 
     STRICT REQUIREMENTS (Do NOT skip any):
-    1. EXACT NAME: Official restaurant name as it appears on Google Maps.
-    2. FULL STREET ADDRESS: Must include street number, street name, and city.
-       - GOOD: "87 Borough High Street, London SE1 1NH"
-       - BAD: "Near Tower Bridge" or "Shoreditch area"
-    3. NEIGHBORHOOD: District/area name (e.g., "Shoreditch", "Borough Market").
-    4. WEBSITE: Official website URL. Write "N/A" if not found.
-    5. CUISINE: Type of food (e.g., "British Pie & Mash", "Italian", "Street Food").
-    6. PRICE LEVEL: $, $$, $$$, or $$$$.
+    1. EXACT NAME: Official restaurant name
+    2. FULL STREET ADDRESS: Street number, street name, city
+    3. NEIGHBORHOOD: District name
+    4. WEBSITE: Official website or "N/A"
+    5. CUISINE: Type of food
+    6. PRICE LEVEL: $, $$, $$$, or $$$$
     7. GOOGLE RATING: e.g., 4.5
-    8. WHY IT FITS: How it matches the traveler profile above.
+    8. WHY IT FITS: How it matches the traveler profile
 
-    Additional constraints: {constraints}
-
-    CRITICAL: If you cannot find a FULL STREET ADDRESS, DO NOT include it.
-    Only return restaurants that match the traveler profile.
+    Constraints: {constraints}
     """
 
-    try:
-        grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        grounded_text = getattr(grounded_response, "content", str(grounded_response))
+    grounded_response = await research_llm.ainvoke([HumanMessage(content=search_prompt)])
+    grounded_text = getattr(grounded_response, "content", str(grounded_response))
 
-        extraction_prompt = f"""
-        Extract restaurant information from this text into structured format.
-        Make sure to extract the full address and website if mentioned.
+    extraction_llm = get_llm_for_role("extraction")
+    structured_extractor = extraction_llm.with_structured_output(RestaurantList)
+    result = await structured_extractor.ainvoke(
+        [
+            HumanMessage(
+                content=f"Extract restaurant information from this text into structured format.\n{grounded_text}"
+            )
+        ]
+    )
+    data = result.items
 
-        {grounded_text}
-        """
-        structured_extractor = extraction_llm.with_structured_output(RestaurantList)
-        result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
-        data = result.items
-
-        log = log_usage("research_food", t0, grounded_response)
-    except Exception as e:
-        logger.error(f"Food Agent Error: {e}")
-        data = []
-        log = log_usage("research_food", t0)
-
-    return {"food_data": data, "debug_logs": [log]}
+    if data:
+        data_dicts = [item.model_dump() for item in data]
+        await cache_research_results(
+            query=search_query, category="restaurants", destination=dest, results=data_dicts, freshness_days=30
+        )
+    return data
 
 
-def research_activity_node(state: AgentState) -> dict:
+async def research_food_node(state: AgentState) -> dict:
+    """Food research — iterates over all destinations for multi-city trips."""
     t0 = time.time()
     details = state.get("user_details", {})
-    dest = details.get("destination")
-    constraints = details.get("constraints", "")
+    destinations = _get_destinations(details)
 
-    # === EXTRACT NEW FIELDS ===
+    all_data = []
+    for dest in destinations:
+        try:
+            data = await _research_food_for_dest(dest, details)
+            all_data.extend(data)
+        except Exception as e:
+            logger.error(f"Food Agent Error [{dest}]: {e}")
+
+    log = {
+        "node": "research_food",
+        "latency_sec": round(time.time() - t0, 2),
+        "destinations": destinations,
+        "results_total": len(all_data),
+        "timestamp": time.strftime("%H:%M:%S"),
+    }
+    return {"food_data": all_data, "debug_logs": [log]}
+
+
+async def _research_activity_for_dest(dest: str, details: dict) -> list:
+    """Research activities for a single destination."""
+    from .schemas import Activity
+
+    constraints = details.get("constraints", "")
     age_range = details.get("age_range", "adults")
     trip_type = details.get("trip_type")
     num_travelers = details.get("num_travelers", 1)
     interests = details.get("interests", "General Sightseeing")
 
-    logger.info(f"Searching activities in {dest} for {age_range} ({trip_type or 'general'} trip)...")
+    search_query = f"best activities in {dest} for {age_range} {trip_type or 'sightseeing'} {interests}"
+
+    cache_hit = await semantic_search(
+        query=search_query, category="activities", destination=dest, similarity_threshold=0.75, max_age_days=45
+    )
+    use_cache, reason = await should_use_cache(cache_hit, "activities")
+
+    if use_cache and cache_hit:
+        logger.info(f"[{dest}] Cache hit for activities ({reason})")
+        return [Activity(**item) for item in cache_hit["results"]]
+
+    logger.info(f"[{dest}] Cache miss for activities — searching Google...")
 
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
-    extraction_llm = get_llm_for_role("extraction")
-
-    # === BUILD ACTIVITY-SPECIFIC FILTERING ===
     activity_focus = _get_activity_focus(trip_type, age_range, interests)
 
     search_prompt = f"""
@@ -581,246 +658,151 @@ def research_activity_node(state: AgentState) -> dict:
     - Number of travelers: {num_travelers}
     - Interests: {interests}
 
-    ACTIVITY FOCUS:
-    {activity_focus}
+    ACTIVITY FOCUS: {activity_focus}
 
     STRICT REQUIREMENTS (Do NOT skip any):
-    1. EXACT NAME: Official name as it appears on Google.
-    2. FULL ADDRESS: Street address or well-known landmark location.
-       - GOOD: "Tower of London, St Katharine's & Wapping, London EC3N 4AB"
-       - BAD: "East London" or "City Center"
-    3. NEIGHBORHOOD: District name (e.g., "City of London", "Westminster").
-    4. WEBSITE: Official website or booking URL. Write "N/A" if not found.
-    5. TYPE: Museum, Park, Historic Site, Tour, Market, etc.
-    6. DURATION: How long to spend there (e.g., "2-3 hours").
-    7. DESCRIPTION: 1-2 sentences about what makes it special FOR THIS TRAVELER PROFILE.
+    1. EXACT NAME  2. FULL ADDRESS  3. NEIGHBORHOOD  4. WEBSITE or "N/A"
+    5. TYPE  6. DURATION  7. DESCRIPTION (1-2 sentences)
 
     Trip duration: {details.get('duration')}
     Constraints: {constraints}
-
     CRITICAL: Only include attractions suitable for {age_range} travelers.
     """
 
-    try:
-        grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        grounded_text = getattr(grounded_response, "content", str(grounded_response))
+    grounded_response = await research_llm.ainvoke([HumanMessage(content=search_prompt)])
+    grounded_text = getattr(grounded_response, "content", str(grounded_response))
 
-        extraction_prompt = f"""
-        Extract activity information from this text into structured format.
-        Make sure to extract the full address and website if mentioned.
+    extraction_llm = get_llm_for_role("extraction")
+    structured_extractor = extraction_llm.with_structured_output(ActivityList)
+    result = await structured_extractor.ainvoke(
+        [HumanMessage(content=f"Extract activity information from this text into structured format.\n{grounded_text}")]
+    )
+    data = result.items
 
-        {grounded_text}
-        """
-        structured_extractor = extraction_llm.with_structured_output(ActivityList)
-        result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
-        data = result.items
-
-        log = log_usage("research_activity", t0, grounded_response)
-    except Exception as e:
-        logger.error(f"Activity Agent Error: {e}")
-        data = []
-        log = log_usage("research_activity", t0)
-
-    return {"activity_data": data, "debug_logs": [log]}
-
-
-def _get_activity_focus(trip_type: str | None, age_range: str, interests: str) -> str:
-    """Generate activity filtering guidance based on traveler profile."""
-
-    # Base filtering by age
-    age_filters = {
-        "kids": "- MUST be child-appropriate (playgrounds, interactive museums, zoos)\n- Avoid long walking tours or adult-only venues\n- Prefer 1-2 hour activities (short attention spans)",
-        "teens": "- Active/engaging activities (sports, adventure parks, escape rooms)\n- Social settings welcome\n- Mix of educational and fun",
-        "young_adults": "- Instagram-worthy spots\n- Nightlife/social scene options\n- Physically active options (hiking, water sports)",
-        "adults": "- Cultural depth (museums, historic sites, food tours)\n- Mix of active and relaxed pace\n- Quality over quantity",
-        "seniors": "- Accessible venues (elevators, seating available)\n- Slower pace, cultural focus\n- Avoid strenuous physical activities",
-        "mixed": "- Family-friendly (suitable for all ages)\n- Variety of intensity levels\n- Group-friendly venues",
-    }
-
-    base_filter = age_filters.get(age_range, age_filters["adults"])
-
-    # Add trip-type specific focus
-    if trip_type == "romantic":
-        base_filter += "\n- Romantic settings (sunset spots, couples activities)\n- Avoid crowded tourist traps\n- Intimate experiences preferred"
-    elif trip_type == "adventure":
-        base_filter += (
-            "\n- Outdoor/active experiences prioritized\n- Physical challenges welcome\n- Off-the-beaten-path options"
+    if data:
+        data_dicts = [item.model_dump() for item in data]
+        await cache_research_results(
+            query=search_query, category="activities", destination=dest, results=data_dicts, freshness_days=45
         )
-    elif trip_type == "cultural":
-        base_filter += "\n- Museums, galleries, historic sites prioritized\n- Local workshops/classes\n- Authentic cultural experiences"
-    elif trip_type == "family":
-        base_filter += "\n- Interactive/educational for kids\n- Parent-friendly logistics (restrooms, food nearby)\n- Mix of indoor/outdoor options"
-    elif trip_type == "relaxation":
-        base_filter += (
-            "\n- Low-key, stress-free activities\n- Parks, gardens, spa experiences\n- Avoid packed schedules"
-        )
-
-    return base_filter
+    return data
 
 
-def research_hotel_node(state: AgentState) -> dict:
+async def research_activity_node(state: AgentState) -> dict:
+    """Activity research — iterates over all destinations for multi-city trips."""
     t0 = time.time()
     details = state.get("user_details", {})
-    dest = details.get("destination")
+    destinations = _get_destinations(details)
+
+    all_data = []
+    for dest in destinations:
+        try:
+            data = await _research_activity_for_dest(dest, details)
+            all_data.extend(data)
+        except Exception as e:
+            logger.error(f"Activity Agent Error [{dest}]: {e}")
+
+    log = {
+        "node": "research_activity",
+        "latency_sec": round(time.time() - t0, 2),
+        "destinations": destinations,
+        "results_total": len(all_data),
+        "timestamp": time.strftime("%H:%M:%S"),
+    }
+    return {"activity_data": all_data, "debug_logs": [log]}
+
+
+async def _research_hotel_for_dest(dest: str, details: dict) -> list:
+    """Research hotels for a single destination."""
+    from .schemas import Hotel
+
     constraints = details.get("constraints", "")
-    logger.info(f"Searching hotels in {dest}...")
+    budget = details.get("budget", "Medium")
+    num_travelers = details.get("num_travelers", 1)
+
+    search_query = f"best hotels in {dest} {budget} budget for {num_travelers} travelers"
+
+    cache_hit = await semantic_search(
+        query=search_query, category="hotels", destination=dest, similarity_threshold=0.85, max_age_days=14
+    )
+    use_cache, reason = await should_use_cache(cache_hit, "hotels")
+
+    if use_cache and cache_hit:
+        logger.info(f"[{dest}] Cache hit for hotels ({reason})")
+        return [Hotel(**item) for item in cache_hit["results"]]
+
+    logger.info(f"[{dest}] Cache miss for hotels — searching Google...")
 
     research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
-    extraction_llm = get_llm_for_role("extraction")
 
     search_prompt = f"""
     Use Google Search to find 3 REAL hotels in {dest}.
 
+    REQUIREMENTS:
+    - Budget level: {budget}
+    - Number of travelers: {num_travelers}
+    {f"- Group accommodation (rooms for {num_travelers}+ people)" if num_travelers >= 5 else ""}
+
     STRICT REQUIREMENTS (Do NOT skip any):
-    1. EXACT NAME: Official hotel name as listed on booking sites.
-    2. FULL STREET ADDRESS: Must include street number and name.
-       - GOOD: "22 Whitechapel High St, London E1 7PW"
-       - BAD: "Central London" or "Near the station"
-    3. NEIGHBORHOOD: District name (e.g., "Bloomsbury", "Covent Garden").
-    4. WEBSITE: Official website or Booking.com link. Write "N/A" if not found.
-    5. PRICE RANGE: Approximate price per night (e.g., "$120-180/night").
-    6. PROS: 2-3 key advantages (location, amenities, value).
+    1. EXACT NAME  2. FULL STREET ADDRESS  3. NEIGHBORHOOD  4. WEBSITE or "N/A"
+    5. PRICE RANGE (per night)  6. PROS (2-3 advantages)
 
-    Budget level: {details.get('budget')}
+    Budget level: {budget}
     Constraints: {constraints}
-
     CRITICAL: Only include hotels with verified, complete street addresses.
     """
 
-    try:
-        grounded_response = research_llm.invoke([HumanMessage(content=search_prompt)])
-        # Use getattr to safely get content from potential Response object
-        grounded_text = getattr(grounded_response, "content", str(grounded_response))
+    grounded_response = await research_llm.ainvoke([HumanMessage(content=search_prompt)])
+    grounded_text = getattr(grounded_response, "content", str(grounded_response))
 
-        extraction_prompt = f"""
-        Extract hotel information from this text into structured format.
-        Make sure to extract the full address and website if mentioned.
+    extraction_llm = get_llm_for_role("extraction")
+    structured_extractor = extraction_llm.with_structured_output(HotelList)
+    result = await structured_extractor.ainvoke(
+        [HumanMessage(content=f"Extract hotel information from this text into structured format.\n{grounded_text}")]
+    )
+    data = result.items
 
-        {grounded_text}
-        """
-        structured_extractor = extraction_llm.with_structured_output(HotelList)
-        result = structured_extractor.invoke([HumanMessage(content=extraction_prompt)])
-        data = result.items
-
-        log = log_usage("research_hotel", t0, grounded_response)
-    except Exception as e:
-        logger.error(f"Hotel Agent Error: {e}")
-        data = []
-        log = log_usage("research_hotel", t0)
-
-    return {"hotel_data": data, "debug_logs": [log]}
+    if data:
+        data_dicts = [item.model_dump() for item in data]
+        await cache_research_results(
+            query=search_query, category="hotels", destination=dest, results=data_dicts, freshness_days=14
+        )
+    return data
 
 
-def _get_narrative_style(num_travelers: int, age_range: str, trip_type: str | None) -> str:
-    """Generate narrative tone guidance for compiler."""
+async def research_hotel_node(state: AgentState) -> dict:
+    """Hotel research — iterates over all destinations for multi-city trips."""
+    t0 = time.time()
+    details = state.get("user_details", {})
+    destinations = _get_destinations(details)
 
-    style = []
+    all_data = []
+    for dest in destinations:
+        try:
+            data = await _research_hotel_for_dest(dest, details)
+            all_data.extend(data)
+        except Exception as e:
+            logger.error(f"Hotel Agent Error [{dest}]: {e}")
 
-    # Addressing style
-    if num_travelers == 1:
-        style.append("- Address the traveler as 'you' (singular)")
-    else:
-        style.append(f"- Address as 'you' (plural) - remember there are {num_travelers} travelers")
-
-    # Tone by trip type
-    if trip_type == "romantic":
-        style.append("- Use romantic, intimate language ('your evening together', 'a cozy dinner for two')")
-        style.append("- Emphasize ambiance and special moments")
-    elif trip_type == "family":
-        style.append("- Family-friendly language ('the kids will love...', 'parents can relax while...')")
-        style.append("- Mention logistics (restrooms, snack stops, break times)")
-    elif trip_type == "adventure":
-        style.append("- Energetic, action-oriented language ('conquer', 'explore', 'challenge yourself')")
-        style.append("- Emphasize physical experiences and adrenaline")
-    elif trip_type == "business" or trip_type == "workation":
-        style.append("- Professional tone, efficient pacing")
-        style.append("- Mention wifi/workspace availability")
-    elif trip_type == "relaxation":
-        style.append("- Calm, soothing language ('unwind', 'leisurely', 'at your own pace')")
-        style.append("- Minimize packed schedules")
-    else:
-        style.append("- Balanced, informative tone")
-
-    # Pacing by age
-    if age_range == "kids" or age_range == "mixed":
-        style.append("- Build in rest breaks and flexible timing")
-        style.append("- Shorter activity blocks (1-2 hours max)")
-    elif age_range == "seniors":
-        style.append("- Emphasize comfort and accessibility")
-        style.append("- Slower pacing, more sitting/rest opportunities")
-    elif age_range == "young_adults":
-        style.append("- Pack activities densely if interests allow")
-        style.append("- Mention social/nightlife options")
-
-    return "\n".join(style)
-
-
-def _get_overview_guidance(trip_type: str | None, age_range: str, num_travelers: int) -> str:
-    """Generate guidance for Overview section."""
-
-    if trip_type == "romantic":
-        return "(Write a romantic intro: 'Your romantic escape to [dest]...', mention couple-friendly highlights)"
-    elif trip_type == "family":
-        return f"(Family-focused intro for {num_travelers} travelers, mention kid-friendly highlights and parent conveniences)"
-    elif trip_type == "adventure":
-        return "(Energetic intro highlighting outdoor activities, physical challenges, and natural beauty)"
-    elif trip_type == "business":
-        return "(Professional intro balancing work needs with cultural exploration)"
-    else:
-        return "(Brief summary of destination highlights tailored to traveler interests)"
-
-
-def _get_day_structure_guide(age_range: str, trip_type: str | None) -> str:
-    """Generate guidance for daily schedule structure."""
-
-    if age_range == "kids" or age_range == "mixed":
-        return """- **Morning:** (Kid-friendly activity, finish before lunch nap time)
-- **Lunch:** (Restaurant with kids menu, note high chairs/changing facilities)
-- **Afternoon:** (Lighter activity or hotel break for naps)
-- **Evening:** (Early dinner, family-friendly restaurant)"""
-    elif trip_type == "romantic":
-        return """- **Morning:** (Leisurely start, romantic breakfast spot)
-- **Midday:** (Couple's activity or scenic walk)
-- **Afternoon:** (Cultural site or relaxing experience)
-- **Evening:** (Romantic dinner with ambiance notes)"""
-    elif trip_type == "adventure":
-        return """- **Early Morning:** (Start early for best light/fewer crowds)
-- **Morning-Afternoon:** (Main adventure activity, 3-5 hours)
-- **Late Afternoon:** (Recovery time or lighter exploration)
-- **Evening:** (Hearty meal to refuel)"""
-    else:
-        return """- **Morning:** [Activity] (X.X km from hotel, ~Y min walk/transit)
-- **Lunch:** [Restaurant] (Address) - [Cuisine], [Price]
-- **Afternoon:** [Activity]
-- **Evening:** [Dinner spot]"""
-
-
-def _get_tips_guidance(age_range: str, trip_type: str | None, num_travelers: int) -> str:
-    """Generate guidance for Tips section."""
-
-    tips = []
-
-    if age_range == "kids" or age_range == "mixed":
-        tips.append("(Include: baby changing facilities, playgrounds nearby, kid-friendly restaurants)")
-
-    if age_range == "seniors":
-        tips.append("(Include: elevator access, rest benches, taxi/accessible transport options)")
-
-    if trip_type == "romantic":
-        tips.append("(Include: reservation tips for romantic restaurants, sunset timing, couple's spa options)")
-
-    if num_travelers >= 5:
-        tips.append("(Include: group reservation tips, split-check restaurant policies, group transport options)")
-
-    if not tips:
-        tips.append("(Standard budget tips and local customs)")
-
-    return "\n".join(tips)
+    log = {
+        "node": "research_hotel",
+        "latency_sec": round(time.time() - t0, 2),
+        "destinations": destinations,
+        "results_total": len(all_data),
+        "timestamp": time.strftime("%H:%M:%S"),
+    }
+    return {"hotel_data": all_data, "debug_logs": [log]}
 
 
 # ============================================================================
-# MAIN COMPILER NODE (REPLACES YOUR EXISTING ONE)
+# MAIN COMPILER NODE
 # ============================================================================
+
+_INTERNAL_KEYS = {"geocoding_status", "zone", "_type"}
+
+
+def _slim_place(d: dict) -> dict:
+    """Strip internal metadata keys that the LLM doesn't need."""
+    return {k: v for k, v in d.items() if k not in _INTERNAL_KEYS and v is not None}
 
 
 async def compiler_node(state: AgentState) -> dict:
@@ -831,15 +813,14 @@ async def compiler_node(state: AgentState) -> dict:
     logger.info("Writing itinerary draft with smart zone grouping...")
     user_details = state.get("user_details", {})
 
-    # Pre-format data for the LLM
+    # Pre-format data for the LLM (strip internal fields to reduce token count)
     food_data = state.get("food_data") or []
     activity_data = state.get("activity_data") or []
     hotel_data = state.get("hotel_data") or []
 
-    # Convert to dicts for processing
-    food_dicts = [f.model_dump() if hasattr(f, "model_dump") else f for f in food_data]
-    activity_dicts = [a.model_dump() if hasattr(a, "model_dump") else a for a in activity_data]
-    hotel_dicts = [h.model_dump() if hasattr(h, "model_dump") else h for h in hotel_data]
+    food_dicts = [_slim_place(f.model_dump() if hasattr(f, "model_dump") else f) for f in food_data]
+    activity_dicts = [_slim_place(a.model_dump() if hasattr(a, "model_dump") else a) for a in activity_data]
+    hotel_dicts = [_slim_place(h.model_dump() if hasattr(h, "model_dump") else h) for h in hotel_data]
 
     # Get hotel coordinates for zone calculation
     hotel_lat, hotel_lon = None, None
@@ -899,7 +880,7 @@ async def compiler_node(state: AgentState) -> dict:
     hotel_json = json.dumps(hotel_dicts, indent=2, ensure_ascii=False)
 
     # ═══════════════════════════════════════════════════════════════════
-    # EXTRACT PERSONALIZATION DATA (NEW!)
+    # EXTRACT PERSONALIZATION DATA
     # ═══════════════════════════════════════════════════════════════════
     num_travelers = user_details.get("num_travelers", 1)
     age_range = user_details.get("age_range", "adults")
@@ -915,7 +896,7 @@ async def compiler_node(state: AgentState) -> dict:
     chat_llm = get_llm_for_role("compiler")
 
     # ═══════════════════════════════════════════════════════════════════
-    # PERSONALIZED PROMPT (NEW VERSION!)
+    # PERSONALIZED PROMPT
     # ═══════════════════════════════════════════════════════════════════
     prompt = f"""
 You are writing a practical travel itinerary for a trip to {user_details.get('destination')}.
@@ -1030,7 +1011,7 @@ Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code bl
 
 
 # ============================================================================
-# REACT AGENT VERSION (unchanged from your original)
+# REACT AGENT VERSION
 # ============================================================================
 
 
@@ -1132,7 +1113,7 @@ Start by analyzing the zones and calling optimize_day_route if needed.
     return draft, log
 
 
-def critic_node(state: AgentState) -> dict:
+async def critic_node(state: AgentState) -> dict:
     t0 = time.time()
     draft = state.get("draft_itinerary", "")
     user_details = state.get("user_details", {})
@@ -1157,7 +1138,7 @@ def critic_node(state: AgentState) -> dict:
     """
 
     try:
-        result = structured_critic.invoke([HumanMessage(content=prompt)])
+        result = await structured_critic.ainvoke([HumanMessage(content=prompt)])
         critique = result.model_dump()
         log = log_usage("critic", t0, result)
 
@@ -1167,7 +1148,7 @@ def critic_node(state: AgentState) -> dict:
         elif critique.get("missing_data"):
             next_node = "research"
         else:
-            next_node = "compiler"  # Just a rewrite needed
+            next_node = "compiler"
 
     except Exception as e:
         logger.error(f"Critic Error: {e}")
@@ -1188,13 +1169,12 @@ workflow.add_node("logistics", logistics_agent)
 workflow.add_node("compiler", compiler_node)
 workflow.add_node("critic", critic_node)
 
-workflow.set_entry_point("interviewer")
+workflow.add_edge(START, "interviewer")
 
 
 def router(state: AgentState):
     next_node = state.get("next_node")
 
-    # CRITICAL FIX: Loop Breaker - "Good Enough" Logic
     if state.get("iteration_count", 0) >= 3:
         return END
 

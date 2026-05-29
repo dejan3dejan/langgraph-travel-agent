@@ -4,13 +4,18 @@ from pydantic import BaseModel, Field
 
 
 class UserPreferences(BaseModel):
-    destination: str = Field(description="City or region for the trip")
+    destination: str = Field(description="Primary city or region for the trip")
+    destinations: list[str] = Field(
+        default_factory=list,
+        description="All destinations in order (e.g. ['Paris', 'Rome']). Empty means single-destination trip.",
+    )
     start_location: str = Field(description="Where the user is starting from")
-    duration: str = Field(description="Length of stay (e.g. 3 days)")
+    duration: str = Field(description="Total length of stay (e.g. 7 days)")
     budget: str = Field(description="Budget level (Low, Medium, High)")
     interests: str = Field(description="Comma-separated interests")
     constraints: str | None = Field(
-        description="Specific constraints (e.g., 'pet friendly', 'smoking allowed', 'no car', 'party friendly')"
+        default=None,
+        description="Specific constraints (e.g., 'pet friendly', 'smoking allowed', 'no car', 'party friendly')",
     )
     focus: list[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
 

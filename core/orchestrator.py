@@ -17,7 +17,7 @@ class TravelOrchestrator:
         inputs = {"messages": updated_history, "iteration_count": 0}
 
         try:
-            result = await self.app.ainvoke(inputs, config={"recursion_limit": 100})
+            result = await self.app.ainvoke(inputs, config={"recursion_limit": 25})
 
             messages = result.get("messages", [])
             last_content = messages[-1]["content"] if messages else "I'm not sure what to say."
@@ -43,7 +43,7 @@ class TravelOrchestrator:
 
         inputs = {"messages": updated_history, "iteration_count": 0}
 
-        async for event in self.app.astream_events(inputs, version="v2", config={"recursion_limit": 100}):
+        async for event in self.app.astream_events(inputs, version="v2", config={"recursion_limit": 25}):
             kind = event["event"]
 
             if kind == "on_node_start":

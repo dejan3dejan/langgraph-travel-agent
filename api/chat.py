@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from core.database import ChatSession, Trip, get_db
+from core.database import ChatSession, SessionLocal, Trip, get_db
 from core.logger import get_logger
 from core.orchestrator import TravelOrchestrator
 
@@ -93,7 +93,7 @@ async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
 
     except Exception as e:
         logger.error(f"Orchestrator Error: {e}")
-        return ChatResponse(session_id=session_id, message=f"I encountered an error: {str(e)}", state="error")
+        return ChatResponse(session_id=session_id, message="Something went wrong. Please try again.", state="error")
 
 
 @router.post("/chat/stream")
@@ -122,19 +122,16 @@ async def chat_stream(chat_message: ChatMessage, db: Session = Depends(get_db)):
             raise
         except Exception as e:
             logger.error(f"Stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            yield f'data: {json.dumps({"type": "error", "content": "An internal error occurred."})}\n\n'
         finally:
             if accumulated_data["itinerary"].strip():
+                persist_db = SessionLocal()
                 try:
-                    # Persistence logic
                     new_history = list(history)
                     new_history.append({"role": "user", "content": user_text})
                     new_history.append({"role": "model", "content": accumulated_data["itinerary"]})
 
-                    current_db_session = next(get_db())
-                    active_session = (
-                        current_db_session.query(ChatSession).filter(ChatSession.session_id == session_id).first()
-                    )
+                    active_session = persist_db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
 
                     if active_session:
                         active_session.data["history"] = new_history
@@ -146,12 +143,14 @@ async def chat_stream(chat_message: ChatMessage, db: Session = Depends(get_db)):
                                 destination="Extracted from stream",
                                 itinerary_text=accumulated_data["itinerary"],
                             )
-                            current_db_session.add(new_trip)
+                            persist_db.add(new_trip)
 
-                        current_db_session.commit()
+                        persist_db.commit()
                         logger.info(f"Stream data persisted for session {session_id}")
                 except Exception as save_err:
                     logger.error(f"Final persistence failed: {save_err}")
+                finally:
+                    persist_db.close()
 
     return StreamingResponse(
         event_generator(),

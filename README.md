@@ -8,24 +8,43 @@ Atlas is an AI-powered travel assistant that orchestrates multiple specialized a
 
 ### Key Features
 
-- **Multi-Agent Orchestration**: Built on LangGraph, with specialized agents for interviewing, research, logistics, and itinerary compilation
-- **Semantic Caching**: PostgreSQL + pgvector implementation that uses embeddings to retrieve relevant cached research data
-- **Intelligent Route Optimization**: Mathematical grouping of activities by proximity zones to minimize travel time
-- **Automated Evaluation**: LLM-as-a-Judge benchmarking system to measure accuracy and performance
-- **Context-Aware Planning**: Personalization based on traveler profile (age, trip type, budget, group size)
+- **Multi-Agent Orchestration**: Built on LangGraph StateGraph with 7 specialized nodes and conditional routing
+- **Multi-Destination Support**: Plan trips across multiple cities (e.g., "Paris and Rome in 7 days")
+- **React Frontend**: Real-time SSE streaming chat UI with Framer Motion animations
+- **Semantic Caching**: PostgreSQL + pgvector embeddings for intelligent research data reuse
+- **Intelligent Route Optimization**: Proximity zone grouping + nearest-neighbor algorithm
+- **Async Pipeline**: Fully async graph execution — no event loop blocking
+- **Observability**: Request tracing (X-Request-ID), per-endpoint latency metrics, aggregate /api/metrics
+- **Security**: API key auth, per-IP rate limiting, CORS lockdown, sanitized error responses
+- **Docker-Ready**: Single-command deployment with docker-compose (app + DB + frontend)
 
 ## Architecture
 
+```
+User Request
+  -> FastAPI (api/main.py)
+    -> TravelOrchestrator
+      -> LangGraph StateGraph
+        -> Interviewer (extract preferences)
+        -> [Parallel] Food + Activity + Hotel Research
+          -> Each checks Semantic Cache (pgvector) before Google Search
+        -> Logistics Agent (async geocoding via Nominatim)
+        -> Compiler (zone-optimized Markdown itinerary)
+        -> Critic (QA review, may loop back)
+      -> Response
+    -> PostgreSQL persistence (sessions + trips)
+```
+
 ### Agent Workflow
 
-1. **Interviewer Agent**: Extracts destination, duration, budget, and preferences from natural language
+1. **Interviewer**: Extracts destination, duration, budget, and preferences from natural language
 2. **Research Agents** (parallel execution):
-   - Food Agent: Sources restaurants with grounding via Google Search
+   - Food Agent: Sources restaurants with Google Search Grounding
    - Activity Agent: Finds attractions matching user interests
    - Hotel Agent: Recommends accommodations within budget
-3. **Logistics Agent**: Geocodes all locations and calculates proximity zones
-4. **Compiler Agent**: Generates day-by-day itinerary with optimized routing
-5. **Critic Agent**: Validates output quality and triggers refinement if needed
+3. **Logistics Agent**: Async geocoding of all locations with DB cache
+4. **Compiler**: Generates day-by-day itinerary with zone-optimized routing
+5. **Critic**: Validates output quality and triggers refinement if needed
 
 ### Semantic Cache (Agentic RAG)
 
@@ -36,171 +55,181 @@ The system implements a self-reflection layer:
 
 ## Tech Stack
 
-- **Backend**: FastAPI, Pydantic
-- **AI Framework**: LangGraph, LangChain
-- **LLM**: Google Gemini (2.5 Flash, 2.5 Pro)
-- **Database**: PostgreSQL with pgvector extension
-- **Embeddings**: Google Generative AI (text-embedding-004)
-- **Geocoding**: Geopy (Nominatim)
+| Component | Technology |
+|---|---|
+| Backend | FastAPI, Pydantic v2 |
+| AI Framework | LangGraph, LangChain |
+| LLM | Google Gemini (2.5 Flash Lite, 2.0 Flash) |
+| Database | PostgreSQL 16 + pgvector |
+| Embeddings | Google text-embedding-004 |
+| Geocoding | Geopy (Nominatim) via async executor |
+| Frontend | React 19, Vite, Framer Motion, react-markdown |
+| Containerization | Docker, docker-compose |
 
-## Setup
+## Quick Start
 
-### Prerequisites
+### Option 1: Docker (Recommended)
 
-- Python 3.12+
-- PostgreSQL 15+ with pgvector extension
-- Google Gemini API key
-
-### Installation
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/dejan3dejan/travel-companion.git
-cd travel-companion
+cp .env.example .env
+# Edit .env with your GEMINI_API_KEY
+
+docker compose up --build
 ```
 
-2. Install dependencies:
+- API: `http://localhost:8000`
+- Frontend: `http://localhost:3000`
+
+### Option 2: Local Development
+
+Prerequisites: Python 3.12+, PostgreSQL 15+ with pgvector extension.
+
 ```bash
+python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+
 pip install -r requirements.txt
-```
 
-3. Configure environment variables:
-```bash
-# .env
-GEMINI_API_KEY=your_key_here
-DATABASE_URL=postgresql://user:password@localhost:5432/travel_companion
-```
+cp .env.example .env
+# Edit .env with your GEMINI_API_KEY and DATABASE_URL
 
-4. Initialize the database:
-```bash
 python init_db.py
-```
-
-5. Run the API server:
-```bash
 python run_api.py
 ```
 
-The server will be available at `http://localhost:8000`.
+### Option 3: Frontend Development
 
-## Usage
-
-### API Endpoint
-
-**POST** `/chat`
-
-Request body:
-```json
-{
-  "message": "I want to visit Paris for 3 days",
-  "history": []
-}
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-Response:
-```json
-{
-  "response": "Great! I'm researching your trip now...",
-  "history": [...],
-  "logs": [...],
-  "itinerary": "# 3-Day Trip to Paris\n\n..."
-}
-```
+The frontend proxies `/api` requests to `localhost:8000` automatically.
 
-### CLI Mode
+### Option 4: CLI Mode
 
 ```bash
 python cli.py
 ```
 
-## Benchmarking
+## Configuration
 
-The project includes an automated evaluation framework that grades itineraries using an LLM-as-a-Judge approach.
+All configuration is via environment variables (see `.env.example`):
 
-### Running Benchmarks
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `GEMINI_API_KEY` | Yes | - | Google Gemini API key |
+| `DATABASE_URL` | Yes | `postgresql://postgres:postgres@localhost:5432/travel_companion` | PostgreSQL connection string |
+| `API_KEY` | No | - | API authentication key (empty = no auth, dev mode) |
+| `CORS_ORIGINS` | No | `http://localhost:3000,http://localhost:5173` | Allowed frontend origins |
+| `RATE_LIMIT_MAX` | No | `30` | Max requests per IP per window |
+| `RATE_LIMIT_WINDOW` | No | `60` | Rate limit window in seconds |
+| `USE_REACT_AGENT` | No | `false` | Enable ReAct agent mode for compiler |
+
+## API Endpoints
+
+### Core
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/` | No | Liveness probe |
+| `GET` | `/health` | No | Deep health check (DB connectivity) |
+| `POST` | `/api/chat` | Yes | Standard chat (non-streaming) |
+| `POST` | `/api/chat/stream` | Yes | SSE streaming chat |
+
+### Cache Management
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/cache/stats` | No | Cache performance metrics |
+| `GET` | `/api/cache/inspect/{destination}` | No | Detailed cache entries |
+| `POST` | `/api/cache/clear-stale` | Yes | Remove old cache entries |
+| `GET` | `/api/cache/test-similarity` | No | Test embedding similarity |
+
+### Observability
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/metrics` | Yes | Aggregate request metrics |
+| `GET` | `/api/debug/logs` | Yes | Recent application logs |
+
+Every response includes `X-Request-ID` and `X-Response-Time-Ms` headers for tracing.
+
+### Chat Request Example
 
 ```bash
-cd tests
-python benchmark.py --limit 10
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"message": "Plan a 3-day trip to Paris on a medium budget", "history": []}'
 ```
-
-This will:
-- Execute test scenarios from `dataset.json`
-- Generate itineraries for each scenario
-- Grade outputs based on predefined criteria
-- Track latency, token usage, and geocoding success rates
-
-### Metrics Tracked
-
-- Per-node latency (interviewer, research, compiler, critic)
-- Total token consumption
-- Geocoding success rates (exact match, neighborhood fallback, failures)
-- Overall itinerary quality score
-
-Results are saved to `benchmark_results.json` and `benchmark_summary.json`.
 
 ## Project Structure
 
 ```
 travel-companion/
-├── core/
-│   ├── graph.py           # LangGraph workflow definition
-│   ├── semantic_cache.py  # Semantic caching + RAG logic
-│   ├── database.py        # SQLAlchemy models and DB session
-│   ├── llm.py             # LLM configuration and role assignment
-│   ├── orchestrator.py    # Main orchestration logic
-│   ├── schemas.py         # Pydantic models for structured output
-│   ├── tools.py           # Route optimization and utility functions
-│   └── logistics.py       # Geocoding and distance calculations
 ├── api/
-│   ├── main.py            # FastAPI application
-│   └── chat.py            # Chat endpoint implementation
-├── tests/
-│   ├── benchmark.py       # Automated evaluation suite
-│   ├── dataset.json       # Test scenarios
-│   └── analyze_results.py # Performance analysis tools
-├── migrations/
-│   └── add_semantic_cache.py
+│   ├── main.py              # FastAPI app, security, observability
+│   └── chat.py              # DB-backed chat router (/api/v2)
+├── core/
+│   ├── graph.py             # LangGraph workflow (multi-dest research)
+│   ├── state.py             # AgentState TypedDict
+│   ├── orchestrator.py      # TravelOrchestrator (invoke + stream)
+│   ├── llm.py               # Role-based LLM factory
+│   ├── schemas.py           # Pydantic models (multi-destination)
+│   ├── tools.py             # LangChain tools (geocode, distance, zones)
+│   ├── logistics.py         # Async geocoding + zone assignment
+│   ├── semantic_cache.py    # PGVector semantic cache + RAG
+│   ├── database.py          # SQLAlchemy models + connection pooling
+│   └── logger.py            # Loguru configuration
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx          # Main chat application
+│   │   ├── hooks/useChat.js # SSE streaming hook
+│   │   └── components/      # Header, Welcome, Message, InputBar, StatusBar
+│   ├── Dockerfile
+│   └── package.json
+├── Dockerfile
+├── docker-compose.yml       # App + DB + Frontend
+├── requirements.txt         # Pinned dependencies
+├── .env.example
 ├── init_db.py
 ├── run_api.py
-└── requirements.txt
+├── cli.py                   # Rich terminal interface
+└── test_smoke.py            # Import + unit smoke tests
 ```
 
 ## Development
 
-### Code Quality
-
-The project uses:
-- **Black** for code formatting (line length: 120)
-- **Ruff** for linting
-- **isort** for import sorting
-- **mypy** for type checking (optional)
-
-Pre-commit hooks are configured via `.pre-commit-config.yaml`.
-
 ### Running Tests
 
 ```bash
-# Unit tests
-pytest tests/test_semantic_cache.py
+# Smoke tests (no DB/API required)
+python test_smoke.py
 
-# Integration benchmarks
-python tests/benchmark.py
+# Full test suite
+pytest
 ```
 
-## Performance Optimization
+### Code Quality
+
+The project uses Black (line-length: 120), Ruff, isort, and mypy. Configuration is in `pyproject.toml`.
+
+## Security
+
+- **Authentication**: Optional API key via `X-API-Key` header (set `API_KEY` env var to enable)
+- **Rate Limiting**: Per-IP, configurable window and max requests
+- **CORS**: Explicit origin allowlist (no wildcards in production)
+- **Error Handling**: Internal errors are logged but never exposed to clients
+- **Health Checks**: `/health` endpoint verifies DB connectivity (returns 503 if down)
+
+## Performance
 
 - **Semantic Cache Hit Rate**: ~60-70% on repeated queries for the same destination
-- **Average Latency**: ~15-20s for full itinerary generation (with cache hits: ~8-12s)
-- **Token Efficiency**: Caching reduces token usage by ~40% on average
-
-## Roadmap
-
-- [ ] Frontend interface (React + streaming SSE)
-- [ ] Multi-destination support (e.g., "Paris and Rome in 7 days")
-- [ ] Real-time price fetching integration
-- [ ] User authentication and itinerary saving
-- [ ] Export to PDF/Calendar formats
+- **Average Latency**: ~15-20s for full itinerary generation (with cache: ~8-12s)
+- **Connection Pooling**: SQLAlchemy pool with pre-ping and 30-min recycle
+- **Async Throughout**: All LLM calls, geocoding, and DB operations are non-blocking
 
 ## License
 

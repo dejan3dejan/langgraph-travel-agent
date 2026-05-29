@@ -28,7 +28,8 @@ ENV/
 
 # Environment Variables
 .env
-.env.*
+.env.local
+!.env.example
 
 # Logs
 logs/
@@ -57,5 +58,12 @@ tests/HUMAN_REVIEW_REPORT.md
 
 # Documentation & Support
 docs/
-README.md
 STRUCTURE.md
+
+# Docker
+pgdata/
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/

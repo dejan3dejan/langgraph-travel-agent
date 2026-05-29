@@ -1,0 +1,194 @@
+:root {
+  /* === The Atlas Society palette === */
+  --bg-deep:       #080c14;
+  --bg-base:       #0b1120;
+  --bg-surface:    #111a2e;
+  --bg-elevated:   #162038;
+  --bg-user:       #1a2d52;
+
+  --copper:        #c8956c;
+  --copper-dim:    #a07350;
+  --copper-glow:   rgba(200, 149, 108, 0.12);
+  --sage:          #5b8a72;
+  --sage-dim:      #3d6b55;
+
+  --text-primary:  #e2ddd5;
+  --text-secondary:#8890a4;
+  --text-muted:    #556078;
+  --text-inverse:  #0b1120;
+
+  --border:        #1c2844;
+  --border-light:  #243352;
+
+  --danger:        #d45d5d;
+  --success:       #5b8a72;
+
+  /* typography */
+  --font-display:  'Instrument Serif', Georgia, serif;
+  --font-body:     'Figtree', system-ui, sans-serif;
+  --font-mono:     'JetBrains Mono', ui-monospace, monospace;
+
+  /* motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  line-height: 1.6;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+/* topographic background pattern */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
+  background-image:
+    repeating-conic-gradient(
+      from 0deg at 50% 50%,
+      transparent 0deg,
+      transparent 89deg,
+      var(--copper) 89deg,
+      var(--copper) 91deg,
+      transparent 91deg
+    );
+  background-size: 200px 200px;
+}
+
+/* subtle radial vignette */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    rgba(200, 149, 108, 0.04) 0%,
+    transparent 60%
+  );
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* markdown rendering inside itineraries */
+.markdown-body {
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+.markdown-body h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.75rem;
+  color: var(--copper);
+  margin: 1.5rem 0 0.75rem;
+  letter-spacing: 0.01em;
+}
+.markdown-body h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.35rem;
+  color: var(--text-primary);
+  margin: 1.25rem 0 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+.markdown-body h3 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--sage);
+  margin: 1rem 0 0.4rem;
+}
+.markdown-body p {
+  margin: 0.5rem 0;
+}
+.markdown-body ul, .markdown-body ol {
+  padding-left: 1.25rem;
+  margin: 0.4rem 0;
+}
+.markdown-body li {
+  margin: 0.25rem 0;
+}
+.markdown-body strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.markdown-body em {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--bg-deep);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  color: var(--copper);
+}
+.markdown-body a {
+  color: var(--copper);
+  text-decoration: none;
+  border-bottom: 1px solid var(--copper-dim);
+  transition: border-color 0.2s;
+}
+.markdown-body a:hover {
+  border-color: var(--copper);
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--copper-dim);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}

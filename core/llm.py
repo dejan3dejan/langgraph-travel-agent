@@ -12,14 +12,16 @@ USE_REACT_AGENT = os.getenv("USE_REACT_AGENT", "false").lower() == "true"
 
 def get_llm_for_role(role: str):
     """Role-based model selection using stable Google models."""
-    if role in ["critic", "interviewer"]:
-        return get_llm("gemini-2.5-pro", temperature=0.1)
+    if role == "critic":
+        return get_llm("gemini-2.5-flash-lite", temperature=0.1)
+
+    if role == "interviewer":
+        return get_llm("gemini-2.5-flash-lite", temperature=0.3)
 
     if role == "compiler":
         return get_llm("gemini-2.0-flash", temperature=0.7)
 
     if role == "compiler_agent":
-        # Agent needs a smarter model for tool use
         return get_llm("gemini-2.0-flash", temperature=0.3)
 
     return get_llm("gemini-2.5-flash-lite", temperature=0)

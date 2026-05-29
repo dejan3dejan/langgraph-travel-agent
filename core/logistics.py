@@ -1,3 +1,4 @@
+import asyncio
 import math
 import time
 from datetime import datetime, timedelta
@@ -46,11 +47,16 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return c * r
 
 
+def _geocode_sync(address: str, timeout: int = 10):
+    """Blocking geocode call, meant to run in a thread executor."""
+    return geolocator.geocode(address, timeout=timeout)
+
+
 def get_coordinates(
     address: str, neighborhood: str | None = None, city: str | None = None, retries: int = 1
 ) -> tuple[float | None, float | None, str]:
     """
-    Helper to get lat/lon from address with fallback to neighborhood.
+    Synchronous helper for use in LangChain tools.
     Checks PostgreSQL cache before calling Nominatim.
     """
     global _geocoding_stats
@@ -66,12 +72,9 @@ def get_coordinates(
     try:
         cached = db.query(GeocodingCache).filter(GeocodingCache.query == query).first()
         if cached:
-            # If it's a success, return it
             if cached.status in ["exact", "neighborhood"]:
                 _geocoding_stats["cache_hits"] += 1
                 return cached.lat, cached.lon, cached.status
-
-            # If it's a failed attempt, we only retry if it's older than 24h
             if cached.status == "failed" and (datetime.utcnow() - cached.created_at) < timedelta(hours=24):
                 _geocoding_stats["cache_hits"] += 1
                 return None, None, "failed"
@@ -80,41 +83,116 @@ def get_coordinates(
     finally:
         db.close()
 
-    # 2. Not in Cache or Retry needed: Call API
+    # 2. Call API (sync)
     res = (None, None, "failed")
     for i in range(retries + 1):
         try:
-            time.sleep(1.1)  # Nominatim policy
+            time.sleep(1.1)
             _geocoding_stats["api_calls"] += 1
-
-            # Attempt 1: Full Address
-            location = geolocator.geocode(address, timeout=10)
+            location = _geocode_sync(address)
             if location:
                 res = (location.latitude, location.longitude, "exact")
                 break
-
-            # Attempt 2: Neighborhood fallback
             if neighborhood:
                 time.sleep(1.1)
                 _geocoding_stats["api_calls"] += 1
                 search_query = f"{neighborhood}, {city}" if city else neighborhood
-                location = geolocator.geocode(search_query, timeout=10)
+                location = _geocode_sync(search_query)
                 if location:
                     res = (location.latitude, location.longitude, "neighborhood")
                     break
-
-            res = (None, None, "failed")
             break
         except (GeocoderTimedOut, Exception):
             if i == retries:
-                res = (None, None, "failed")
                 break
             continue
 
     # 3. Save to Cache
+    _save_to_geocoding_cache(query, res)
+
+    if res[2] == "failed":
+        _geocoding_stats["failed"] += 1
+    elif res[2] == "exact":
+        _geocoding_stats["exact"] += 1
+    elif res[2] == "neighborhood":
+        _geocoding_stats["neighborhood"] += 1
+
+    return res
+
+
+async def aget_coordinates(
+    address: str, neighborhood: str | None = None, city: str | None = None, retries: int = 1
+) -> tuple[float | None, float | None, str]:
+    """
+    Async version — runs blocking geocode in a thread executor
+    so the event loop is never blocked.
+    """
+    global _geocoding_stats
+    loop = asyncio.get_running_loop()
+
+    if not address:
+        _geocoding_stats["failed"] += 1
+        return None, None, "failed"
+
+    query = address.strip()
+
+    # 1. Check Cache (fast DB lookup, OK to run in executor)
     db = SessionLocal()
     try:
-        # Update or Insert
+        cached = db.query(GeocodingCache).filter(GeocodingCache.query == query).first()
+        if cached:
+            if cached.status in ["exact", "neighborhood"]:
+                _geocoding_stats["cache_hits"] += 1
+                return cached.lat, cached.lon, cached.status
+            if cached.status == "failed" and (datetime.utcnow() - cached.created_at) < timedelta(hours=24):
+                _geocoding_stats["cache_hits"] += 1
+                return None, None, "failed"
+    except Exception as e:
+        logger.warning(f"Cache lookup failed: {e}")
+    finally:
+        db.close()
+
+    # 2. Call Nominatim API via executor (non-blocking)
+    res = (None, None, "failed")
+    for i in range(retries + 1):
+        try:
+            await asyncio.sleep(1.1)
+            _geocoding_stats["api_calls"] += 1
+            location = await loop.run_in_executor(None, _geocode_sync, address)
+            if location:
+                res = (location.latitude, location.longitude, "exact")
+                break
+            if neighborhood:
+                await asyncio.sleep(1.1)
+                _geocoding_stats["api_calls"] += 1
+                search_query = f"{neighborhood}, {city}" if city else neighborhood
+                location = await loop.run_in_executor(None, _geocode_sync, search_query)
+                if location:
+                    res = (location.latitude, location.longitude, "neighborhood")
+                    break
+            break
+        except (GeocoderTimedOut, Exception):
+            if i == retries:
+                break
+            continue
+
+    # 3. Save to Cache
+    _save_to_geocoding_cache(query, res)
+
+    if res[2] == "failed":
+        _geocoding_stats["failed"] += 1
+    elif res[2] == "exact":
+        _geocoding_stats["exact"] += 1
+    elif res[2] == "neighborhood":
+        _geocoding_stats["neighborhood"] += 1
+
+    return res
+
+
+def _save_to_geocoding_cache(query: str, res: tuple) -> None:
+    """Persist geocoding result to PostgreSQL cache."""
+    db = SessionLocal()
+    try:
         cached_entry = db.query(GeocodingCache).filter(GeocodingCache.query == query).first()
         if cached_entry:
             cached_entry.lat, cached_entry.lon, cached_entry.status = res[0], res[1], res[2]
@@ -128,25 +206,16 @@ def get_coordinates(
     finally:
         db.close()
 
-    if res[2] == "failed":
-        _geocoding_stats["failed"] += 1
-    elif res[2] == "exact":
-        _geocoding_stats["exact"] += 1
-    elif res[2] == "neighborhood":
-        _geocoding_stats["neighborhood"] += 1
 
-    return res
-
-
-def logistics_agent(state: AgentState) -> dict[str, Any]:
+async def logistics_agent(state: AgentState) -> dict[str, Any]:
     """
-    The Logistics Agent:
+    The Logistics Agent (async):
     1. Geocodes all locations with fallback to neighborhood.
     2. Assigns zones based on 2km radius from the base hotel.
     3. Returns debug_logs with timing and geocoding statistics.
     """
     t0 = time.time()
-    reset_geocoding_stats()  # Fresh stats for this run
+    reset_geocoding_stats()
 
     logger.info("Geocoding locations and assigning zones (2km radius)...")
 
@@ -155,13 +224,13 @@ def logistics_agent(state: AgentState) -> dict[str, Any]:
     hotel_data = state.get("hotel_data") or []
     city = state.get("user_details", {}).get("destination")
 
-    # 1. Geocode everything
+    # 1. Geocode everything (async, non-blocking)
     all_items = hotel_data + activity_data + food_data
     items_to_geocode = sum(1 for item in all_items if item.lat is None)
 
     for item in all_items:
         if item.lat is None:
-            lat, lon, status = get_coordinates(item.address, getattr(item, "neighborhood", None), city)
+            lat, lon, status = await aget_coordinates(item.address, getattr(item, "neighborhood", None), city)
             item.lat, item.lon, item.geocoding_status = lat, lon, status
 
     # 2. Zoning (Base on the first hotel)
