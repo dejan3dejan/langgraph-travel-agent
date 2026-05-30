@@ -527,9 +527,9 @@ async def _research_food_for_dest(dest: str, details: dict) -> list:
         logger.info(f"[{dest}] Cache hit for restaurants ({reason})")
         return [Restaurant(**item) for item in cache_hit["results"]]
 
-    logger.info(f"[{dest}] Cache miss for restaurants — searching Google...")
+    logger.info(f"[{dest}] Cache miss for restaurants — querying LLM...")
 
-    research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
+    research_llm = get_llm_for_role("research")
     age_filters = {
         "kids": "- MUST be kid-friendly (high chairs, kids menu)",
         "seniors": "- Accessible (ground floor or elevator, comfortable seating)",
@@ -537,7 +537,7 @@ async def _research_food_for_dest(dest: str, details: dict) -> list:
     }.get(age_range, "")
 
     search_prompt = f"""
-    Use Google Search to find 3 REAL, currently operating restaurants in {dest}.
+    Find 3 REAL, currently operating restaurants in {dest}.
 
     TRAVELER PROFILE:
     - Number of travelers: {num_travelers}
@@ -628,13 +628,13 @@ async def _research_activity_for_dest(dest: str, details: dict) -> list:
         logger.info(f"[{dest}] Cache hit for activities ({reason})")
         return [Activity(**item) for item in cache_hit["results"]]
 
-    logger.info(f"[{dest}] Cache miss for activities — searching Google...")
+    logger.info(f"[{dest}] Cache miss for activities — querying LLM...")
 
-    research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
+    research_llm = get_llm_for_role("research")
     activity_focus = _get_activity_focus(trip_type, age_range, interests)
 
     search_prompt = f"""
-    Use Google Search to find 3 REAL activities/attractions in {dest}.
+    Find 3 REAL activities/attractions in {dest}.
 
     TRAVELER PROFILE:
     - Age range: {age_range}
@@ -714,12 +714,12 @@ async def _research_hotel_for_dest(dest: str, details: dict) -> list:
         logger.info(f"[{dest}] Cache hit for hotels ({reason})")
         return [Hotel(**item) for item in cache_hit["results"]]
 
-    logger.info(f"[{dest}] Cache miss for hotels — searching Google...")
+    logger.info(f"[{dest}] Cache miss for hotels — querying LLM...")
 
-    research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
+    research_llm = get_llm_for_role("research")
 
     search_prompt = f"""
-    Use Google Search to find 3 REAL hotels in {dest}.
+    Find 3 REAL hotels in {dest}.
 
     REQUIREMENTS:
     - Budget level: {budget}

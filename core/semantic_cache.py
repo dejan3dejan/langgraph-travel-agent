@@ -5,7 +5,7 @@ import os
 from datetime import UTC, datetime, timedelta
 
 from dotenv import load_dotenv
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from sqlalchemy import text
 
 from .database import SessionLocal
@@ -25,10 +25,9 @@ def to_pgvector(vec: list[float]) -> str:
     return "[" + ",".join(map(str, vec)) + "]"
 
 
-embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/text-embedding-004",
-    task_type="retrieval_document",
-    google_api_key=os.getenv("GEMINI_API_KEY"),
+embeddings = OpenAIEmbeddings(
+    model="text-embedding-3-small",
+    api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 
@@ -105,7 +104,7 @@ async def semantic_search(
                 "original_query": original_query,
             }
         else:
-            logger.info("CACHE MISS - Will trigger Google Search")
+            logger.info("CACHE MISS - Will query LLM")
             return None
 
     except Exception as e:
