@@ -104,7 +104,7 @@ async def semantic_search(
                 "original_query": original_query,
             }
         else:
-            logger.info("CACHE MISS - Will query LLM")
+            logger.info("CACHE MISS - Will query research LLM")
             return None
 
     except Exception as e:
