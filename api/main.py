@@ -7,14 +7,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel, Field
 
 from api.chat import router as chat_router
 from core.database import SessionLocal, engine, init_db
 from core.logger import get_logger
-from core.orchestrator import TravelOrchestrator
 from core.semantic_cache import get_cache_stats
 
 logger = get_logger(__name__)
@@ -143,26 +141,7 @@ async def observability_middleware(request: Request, call_next):
     return response
 
 
-orchestrator = TravelOrchestrator()
-
-app.include_router(chat_router, prefix="/api/v2", tags=["chat-v2"])
-
-
-MAX_MESSAGE_LENGTH = 2000
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
-    session_id: str | None = None
-    history: list[dict[str, str]] = []
-
-
-class ChatResponse(BaseModel):
-    response: str
-    session_id: str
-    history: list[dict[str, str]]
-    debug_logs: list[dict]
-    user_details: dict
+app.include_router(chat_router, prefix="/api", tags=["chat"])
 
 
 @app.get("/")
@@ -188,59 +167,6 @@ async def health_check():
         )
 
     return {"status": "healthy", "database": db_status}
-
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, _key: str | None = Depends(verify_api_key)):
-    """Standard chat endpoint (non-streaming)."""
-    try:
-        session_id = request.session_id or str(uuid.uuid4())
-
-        logger.info(f"Chat request: '{request.message[:50]}...' (session: {session_id})")
-
-        response, history, debug_logs, user_details = await orchestrator.chat(
-            user_message=request.message, history=request.history
-        )
-
-        return ChatResponse(
-            response=response, session_id=session_id, history=history, debug_logs=debug_logs, user_details=user_details
-        )
-
-    except Exception as e:
-        logger.error(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.") from None
-
-
-@app.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest, _key: str | None = Depends(verify_api_key)):
-    """SSE streaming chat. Event types: status, token, reset, end, error."""
-    import json as _json
-
-    async def event_generator():
-        try:
-            logger.info(f"Stream request: '{request.message[:50]}...'")
-
-            async for event in orchestrator.stream_chat(user_message=request.message, history=request.history):
-                event_type = event.get("type", "message")
-
-                if event_type == "end":
-                    yield 'data: {"type": "end"}\n\n'
-                    break
-                else:
-                    yield f"data: {_json.dumps(event)}\n\n"
-
-        except Exception as e:
-            logger.error(f"Stream error: {e}")
-            yield f'data: {_json.dumps({"type": "error", "content": "An internal error occurred."})}\n\n'
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    )
 
 
 @app.get("/api/cache/stats")
