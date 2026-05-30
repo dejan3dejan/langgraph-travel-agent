@@ -14,7 +14,7 @@ class AgentState(TypedDict):
     food_data: list[Restaurant] | None
     activity_data: list[Activity] | None
     hotel_data: list[Hotel] | None
-    logistics: dict[str, Any] | None
+    logistics_meta: dict[str, Any] | None
 
     draft_itinerary: str | None
     critique: dict[str, Any] | None

@@ -253,6 +253,6 @@ async def logistics_agent(state: AgentState) -> dict[str, Any]:
         "food_data": food_data,
         "activity_data": activity_data,
         "hotel_data": hotel_data,
-        "logistics": logistics_meta,
+        "logistics_meta": logistics_meta,
         "debug_logs": [log_entry],
     }

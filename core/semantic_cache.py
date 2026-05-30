@@ -1,13 +1,17 @@
 """Semantic research cache using PGVector for Agentic RAG with self-reflection."""
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 
+from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from sqlalchemy import text
 
 from .database import SessionLocal
 from .logger import get_logger
+
+load_dotenv()
 
 logger = get_logger(__name__)
 
@@ -21,7 +25,11 @@ def to_pgvector(vec: list[float]) -> str:
     return "[" + ",".join(map(str, vec)) + "]"
 
 
-embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", task_type="retrieval_document")
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/text-embedding-004",
+    task_type="retrieval_document",
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+)
 
 
 async def semantic_search(
