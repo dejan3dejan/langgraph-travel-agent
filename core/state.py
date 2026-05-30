@@ -5,33 +5,24 @@ from .schemas import Activity, Hotel, Restaurant
 
 
 class AgentState(TypedDict):
-    """
-    The memory of the agent workflow.
-    """
+    """Shared state flowing through the LangGraph workflow."""
 
-    # Chat history (list of role/content dicts)
     messages: Annotated[list[dict[str, str]], operator.add]
+    user_details: dict[str, Any] | None
 
-    # Structured Data
-    user_details: dict[str, Any] | None  # {destination, budget, etc.}
-
-    # Parallel Research Data (Will be enriched by Logistics Agent)
+    # Research data — populated by parallel research nodes, enriched by logistics
     food_data: list[Restaurant] | None
     activity_data: list[Activity] | None
     hotel_data: list[Hotel] | None
-
-    # Logistics Hub - Global map and calculations
-    # Stores clusters, distance matrices, and transport suggestions
     logistics: dict[str, Any] | None
 
-    # Plan State
-    draft_itinerary: str | None  # The markdown draft
-    critique: dict[str, Any] | None  # The Judge's feedback
+    draft_itinerary: str | None
+    critique: dict[str, Any] | None
+    season_suggestion: str | None
 
-    # Control Flow
-    iteration_count: int  # To prevent infinite loops in compiler/critic
-    interview_count: int  # To prevent infinite loops in interviewer
-    next_node: str  # Where to go next
+    # Loop guards: prevent infinite compiler/critic or interviewer cycles
+    iteration_count: int
+    interview_count: int
+    next_node: str
 
-    # Metrics & Debugging
     debug_logs: Annotated[list[dict[str, Any]], operator.add]

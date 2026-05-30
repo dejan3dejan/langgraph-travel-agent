@@ -1,16 +1,13 @@
-"""
-Smart Chat API endpoint powered by the Travel Orchestrator.
-Supports both standard and streaming responses.
-"""
+"""DB-backed chat router with standard and streaming endpoints."""
 
 import asyncio
 import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -22,23 +19,18 @@ logger = get_logger(__name__)
 router = APIRouter()
 orchestrator = TravelOrchestrator()
 
-# --- Data Models ---
-
 
 class ChatMessage(BaseModel):
     user_id: str | None = None
     session_id: str | None = None
-    message: str
+    message: str = Field(..., min_length=1, max_length=2000)
 
 
 class ChatResponse(BaseModel):
     session_id: str
     message: str
-    state: str  # 'chatting' | 'planning' | 'completed'
+    state: str
     itinerary: str | None = None
-
-
-# --- Helper Functions ---
 
 
 def get_or_create_session(db: Session, session_id: str | None, user_id: str | None) -> tuple[str, ChatSession]:
@@ -50,9 +42,6 @@ def get_or_create_session(db: Session, session_id: str | None, user_id: str | No
         db.add(db_session)
         db.commit()
     return sid, db_session
-
-
-# --- Routes ---
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -104,7 +93,7 @@ async def chat_stream(chat_message: ChatMessage, db: Session = Depends(get_db)):
     user_text = chat_message.message.strip()
 
     async def event_generator():
-        accumulated_data = {"itinerary": "", "completed": False, "start_time": datetime.utcnow()}
+        accumulated_data = {"itinerary": "", "completed": False, "start_time": datetime.now(UTC)}
 
         try:
             async for event in orchestrator.stream_chat(user_text, history):

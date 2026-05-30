@@ -1,7 +1,4 @@
-"""
-Travel Companion API - Main Entry Point
-FastAPI server with semantic cache monitoring
-"""
+"""FastAPI server with semantic cache monitoring and observability."""
 
 import os
 import time
@@ -12,7 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.chat import router as chat_router
 from core.database import SessionLocal, engine, init_db
@@ -22,16 +19,12 @@ from core.semantic_cache import get_cache_stats
 
 logger = get_logger(__name__)
 
-# ============================================================================
-# SECURITY: API Key Authentication
-# ============================================================================
-
 API_KEY = os.getenv("API_KEY")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def verify_api_key(api_key: str | None = Security(api_key_header)) -> str | None:
-    """Validate API key if API_KEY env var is set. Skip auth if unset (dev mode)."""
+    """Validate API key if set. Skips auth when API_KEY env var is empty (dev mode)."""
     if not API_KEY:
         return None
     if not api_key or api_key != API_KEY:
@@ -39,18 +32,9 @@ async def verify_api_key(api_key: str | None = Security(api_key_header)) -> str 
     return api_key
 
 
-# ============================================================================
-# SECURITY: Rate Limiting (in-memory, per-IP)
-# ============================================================================
-
 _rate_limit_store: dict[str, list[float]] = {}
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "30"))
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
-
-
-# ============================================================================
-# LIFESPAN MANAGEMENT
-# ============================================================================
 
 
 @asynccontextmanager
@@ -58,7 +42,6 @@ async def lifespan(app: FastAPI):
     """Initialize database on startup."""
     logger.info("🚀 Starting Travel Companion API...")
 
-    # Initialize database
     try:
         init_db()
         logger.info("✅ Database initialized")
@@ -66,7 +49,6 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Database initialization failed: {e}")
         raise
 
-    # Display cache stats on startup
     try:
         stats = get_cache_stats()
         if stats:
@@ -81,10 +63,6 @@ async def lifespan(app: FastAPI):
     logger.info("👋 Shutting down...")
 
 
-# ============================================================================
-# FASTAPI APP
-# ============================================================================
-
 app = FastAPI(
     title="Travel Companion API",
     description="AI-powered travel planning with semantic caching",
@@ -92,7 +70,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS Middleware — read allowed origins from env, default to localhost only
 _allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
 
 app.add_middleware(
@@ -104,16 +81,18 @@ app.add_middleware(
 )
 
 
+_RATE_LIMIT_MAX_IPS = 10_000
+
+
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Simple in-memory per-IP rate limiter."""
+    """Per-IP sliding-window rate limiter. Skips health/liveness probes."""
     if request.url.path in ("/", "/health"):
         return await call_next(request)
 
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
 
-    # Prune old entries
     window_start = now - RATE_LIMIT_WINDOW
     hits = _rate_limit_store.get(client_ip, [])
     hits = [t for t in hits if t > window_start]
@@ -126,19 +105,21 @@ async def rate_limit_middleware(request: Request, call_next):
 
     hits.append(now)
     _rate_limit_store[client_ip] = hits
+
+    if len(_rate_limit_store) > _RATE_LIMIT_MAX_IPS:
+        stale = [ip for ip, ts in _rate_limit_store.items() if not ts or ts[-1] < window_start]
+        for ip in stale:
+            del _rate_limit_store[ip]
+
     return await call_next(request)
 
-
-# ============================================================================
-# OBSERVABILITY: Request tracing + metrics
-# ============================================================================
 
 _metrics = {"requests_total": 0, "requests_by_path": {}, "errors_total": 0, "avg_latency_ms": 0.0, "_latency_sum": 0.0}
 
 
 @app.middleware("http")
 async def observability_middleware(request: Request, call_next):
-    """Track request ID, latency, and aggregate metrics."""
+    """Attach X-Request-ID / X-Response-Time-Ms headers and track aggregate metrics."""
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
     start = time.time()
 
@@ -162,19 +143,16 @@ async def observability_middleware(request: Request, call_next):
     return response
 
 
-# Orchestrator instance
 orchestrator = TravelOrchestrator()
 
 app.include_router(chat_router, prefix="/api/v2", tags=["chat-v2"])
 
 
-# ============================================================================
-# REQUEST/RESPONSE MODELS
-# ============================================================================
+MAX_MESSAGE_LENGTH = 2000
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
     session_id: str | None = None
     history: list[dict[str, str]] = []
 
@@ -187,14 +165,9 @@ class ChatResponse(BaseModel):
     user_details: dict
 
 
-# ============================================================================
-# MAIN ENDPOINTS
-# ============================================================================
-
-
 @app.get("/")
 async def root():
-    """Basic liveness probe."""
+    """Liveness probe."""
     return {"status": "ok", "service": "Travel Companion API", "version": "1.0.0"}
 
 
@@ -219,19 +192,7 @@ async def health_check():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, _key: str | None = Depends(verify_api_key)):
-    """
-    Standard chat endpoint (non-streaming).
-
-    Example:
-    ```
-    POST /api/chat
-    {
-        "message": "Plan a 3-day trip to Paris",
-        "session_id": "optional-session-id",
-        "history": []
-    }
-    ```
-    """
+    """Standard chat endpoint (non-streaming)."""
     try:
         session_id = request.session_id or str(uuid.uuid4())
 
@@ -252,17 +213,7 @@ async def chat(request: ChatRequest, _key: str | None = Depends(verify_api_key))
 
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest, _key: str | None = Depends(verify_api_key)):
-    """
-    Streaming chat endpoint.
-
-    Returns Server-Sent Events (SSE) stream.
-
-    Event types:
-    - status: Node execution updates
-    - token: Streaming response tokens
-    - reset: Itinerary reset signal
-    - end: Stream completion
-    """
+    """SSE streaming chat. Event types: status, token, reset, end, error."""
     import json as _json
 
     async def event_generator():
@@ -292,36 +243,12 @@ async def chat_stream(request: ChatRequest, _key: str | None = Depends(verify_ap
     )
 
 
-# ============================================================================
-# CACHE MONITORING ENDPOINTS
-# ============================================================================
-
-
 @app.get("/api/cache/stats")
 async def cache_stats(destination: str | None = None):
-    """
-    Get semantic cache performance metrics.
-
-    Query params:
-    - destination: Filter by specific destination (optional)
-
-    Returns:
-    ```json
-    {
-        "restaurants": {
-            "entries": 45,
-            "total_uses": 128,
-            "avg_rating": 4.3
-        },
-        "activities": {...},
-        "hotels": {...}
-    }
-    ```
-    """
+    """Semantic cache performance metrics, optionally filtered by destination."""
     try:
         stats = get_cache_stats(destination)
 
-        # Calculate overall metrics
         total_entries = sum(s["entries"] for s in stats.values())
         total_uses = sum(s["total_uses"] for s in stats.values())
         hit_rate = (total_uses / total_entries * 100) if total_entries > 0 else 0
@@ -337,11 +264,7 @@ async def cache_stats(destination: str | None = None):
 
 @app.get("/api/cache/inspect/{destination}")
 async def inspect_cache(destination: str):
-    """
-    Inspect cache entries for specific destination.
-
-    Returns detailed list of all cached queries for the destination.
-    """
+    """Detailed cache entries for a specific destination."""
     from sqlalchemy import text
 
     db = SessionLocal()
@@ -387,19 +310,14 @@ async def inspect_cache(destination: str):
 
 @app.post("/api/cache/clear-stale")
 async def clear_stale_cache(max_age_days: int = 60, _key: str | None = Depends(verify_api_key)):
-    """
-    Remove cache entries older than specified days.
-
-    Query params:
-    - max_age_days: Maximum age in days (default: 60)
-    """
-    from datetime import datetime, timedelta
+    """Remove cache entries older than max_age_days (default 60)."""
+    from datetime import UTC, datetime, timedelta
 
     from sqlalchemy import text
 
     db = SessionLocal()
     try:
-        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
 
         result = db.execute(
             text("DELETE FROM semantic_cache WHERE created_at < :cutoff RETURNING id"), {"cutoff": cutoff}
@@ -420,15 +338,7 @@ async def clear_stale_cache(max_age_days: int = 60, _key: str | None = Depends(v
 
 @app.get("/api/cache/test-similarity")
 async def test_similarity(query1: str, query2: str):
-    """
-    Test semantic similarity between two queries.
-
-    Useful for debugging cache hit/miss behavior.
-
-    Query params:
-    - query1: First query string
-    - query2: Second query string
-    """
+    """Compare cosine similarity between two queries. Useful for debugging cache behavior."""
     import numpy as np
 
     from core.semantic_cache import embeddings
@@ -437,7 +347,6 @@ async def test_similarity(query1: str, query2: str):
         vec1 = await embeddings.aembed_query(query1)
         vec2 = await embeddings.aembed_query(query2)
 
-        # Cosine similarity
         similarity = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
         match_quality = (
@@ -459,11 +368,6 @@ async def test_similarity(query1: str, query2: str):
         raise HTTPException(status_code=500, detail="Failed to compute similarity.") from None
 
 
-# ============================================================================
-# OBSERVABILITY ENDPOINTS
-# ============================================================================
-
-
 @app.get("/api/metrics")
 async def get_metrics(_key: str | None = Depends(verify_api_key)):
     """Aggregate request metrics. Requires API key."""
@@ -475,14 +379,9 @@ async def get_metrics(_key: str | None = Depends(verify_api_key)):
     }
 
 
-# ============================================================================
-# DEBUG ENDPOINTS
-# ============================================================================
-
-
 @app.get("/api/debug/logs")
 async def get_recent_logs(_key: str | None = Depends(verify_api_key)):
-    """Get recent application logs (last 100 lines). Requires API key."""
+    """Last 100 lines from the application log file. Requires API key."""
     try:
         log_file = "logs/travel_companion.log"
         if not os.path.exists(log_file):
@@ -490,7 +389,7 @@ async def get_recent_logs(_key: str | None = Depends(verify_api_key)):
 
         with open(log_file) as f:
             lines = f.readlines()
-            recent_logs = lines[-100:]  # Last 100 lines
+            recent_logs = lines[-100:]
 
         return {"logs": [line.strip() for line in recent_logs], "count": len(recent_logs)}
     except Exception as e:
@@ -498,12 +397,7 @@ async def get_recent_logs(_key: str | None = Depends(verify_api_key)):
         raise HTTPException(status_code=500, detail="Failed to retrieve logs.") from None
 
 
-# ============================================================================
-# RUN SERVER
-# ============================================================================
-
 if __name__ == "__main__":
-
     port = int(os.getenv("PORT", 8000))
 
     logger.info(f"🚀 Starting server on http://localhost:{port}")

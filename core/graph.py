@@ -154,11 +154,10 @@ def _get_activity_focus(trip_type: str, age_range: str, interests: str) -> str:
 
 
 def log_usage(node_name: str, start_time: float, response: Any = None) -> dict:
-    """Creates a log entry for usage metrics."""
+    """Build a timing/token-count log entry for debug_logs."""
     duration = time.time() - start_time
     tokens = 0
 
-    # Try to extract tokens if available
     try:
         if response:
             if hasattr(response, "usage_metadata") and response.usage_metadata:
@@ -181,7 +180,7 @@ async def interviewer_node(state: AgentState) -> dict:
     messages = state.get("messages", [])
     interview_count = state.get("interview_count", 0) + 1
 
-    MAX_INTERVIEW_ITERATIONS = 4  # Force extraction after this many attempts
+    MAX_INTERVIEW_ITERATIONS = 4
 
     system_prompt = """
     You are 'Atlas', a charming and intelligent Travel Consultant.
@@ -319,11 +318,9 @@ CRITICAL RULES
         else:
             lc_messages.append(AIMessage(content=m["content"]))
 
-    # Get models for role
     chat_llm = get_llm_for_role("interviewer")
     extraction_llm = get_llm_for_role("extraction")
 
-    # Check if we should force extraction due to max iterations
     force_extraction = interview_count >= MAX_INTERVIEW_ITERATIONS
 
     if force_extraction:
@@ -335,15 +332,11 @@ CRITICAL RULES
 
     log = log_usage("interviewer", t0, response if not force_extraction else None)
 
-    # -------------------------------------------------------------------
-    # AGGRESSIVE EXTRACTION CHECK (Override conversational mode)
-    # -------------------------------------------------------------------
-    # If LLM didn't say PLANNING_STARTED but we have enough data, force it
+    # Override: if the LLM wrote a conversational reply but we already have
+    # both destination + duration in the first message, force extraction anyway
     if "PLANNING_STARTED" not in content.upper():
-        # Quick heuristic: check last user message for destination + duration signals
         last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
 
-        # Destination signals
         destination_keywords = [
             "paris",
             "london",
@@ -368,7 +361,6 @@ CRITICAL RULES
         ]
         has_destination = any(word in last_user_msg.lower() for word in destination_keywords)
 
-        # Duration signals
         duration_keywords = [
             "day",
             "week",
@@ -387,15 +379,11 @@ CRITICAL RULES
         ]
         has_duration = any(word in last_user_msg.lower() for word in duration_keywords)
 
-        # If both are present in the FIRST user message, force extraction
         if has_destination and has_duration and interview_count == 1:
             logger.info("FORCING EXTRACTION: First message contains destination + duration")
             content = "PLANNING_STARTED"
 
-    # ═══════════════════════════════════════════════════════════════════
-
     if "PLANNING_STARTED" in content.upper() or force_extraction:
-        # Structured Extraction
         structured_llm = extraction_llm.with_structured_output(UserPreferences)
 
         prompt = """
@@ -423,29 +411,25 @@ CONVERSATION:
             user_prefs = await structured_llm.ainvoke(extraction_msg)
             user_details = user_prefs.model_dump()
 
-            # Auto-fill interests if missing
             if not user_details.get("interests") or user_details.get("interests").lower() == "unknown":
                 user_details["interests"] = "General Sightseeing"
 
-            # Final safety check for start_location
             if not user_details.get("start_location"):
                 user_details["start_location"] = "the user's current location"
 
-            # Normalize multi-destination: ensure destination is always first in list
+            # Ensure primary destination is first in the multi-dest list
             dests = user_details.get("destinations") or []
             primary = user_details.get("destination", "")
             if dests and primary and primary not in dests:
                 dests.insert(0, primary)
             elif not dests and primary:
-                dests = []  # single destination — keep destinations empty
+                dests = []
             user_details["destinations"] = dests
 
-            # Generate season suggestion if dates are flexible
             season_suggestion = None
             if not user_details.get("travel_dates"):
                 budget = user_details.get("budget", "Medium")
 
-                # Simple season suggestion logic
                 if budget.lower() == "low":
                     season_suggestion = (
                         "Off-season (typically Nov-Mar for Europe): 30-50% cheaper accommodations and fewer crowds"
@@ -793,10 +777,6 @@ async def research_hotel_node(state: AgentState) -> dict:
     return {"hotel_data": all_data, "debug_logs": [log]}
 
 
-# ============================================================================
-# MAIN COMPILER NODE
-# ============================================================================
-
 _INTERNAL_KEYS = {"geocoding_status", "zone", "_type"}
 
 
@@ -807,13 +787,12 @@ def _slim_place(d: dict) -> dict:
 
 async def compiler_node(state: AgentState) -> dict:
     t0 = time.time()
-    # Explicit signal to reset any streaming buffers (useful if critic loops back)
+    # Signal frontend to clear the previous draft (matters when critic loops back)
     await adispatch_custom_event("reset_itinerary", {"message": "Refining itinerary..."})
 
     logger.info("Writing itinerary draft with smart zone grouping...")
     user_details = state.get("user_details", {})
 
-    # Pre-format data for the LLM (strip internal fields to reduce token count)
     food_data = state.get("food_data") or []
     activity_data = state.get("activity_data") or []
     hotel_data = state.get("hotel_data") or []
@@ -822,19 +801,14 @@ async def compiler_node(state: AgentState) -> dict:
     activity_dicts = [_slim_place(a.model_dump() if hasattr(a, "model_dump") else a) for a in activity_data]
     hotel_dicts = [_slim_place(h.model_dump() if hasattr(h, "model_dump") else h) for h in hotel_data]
 
-    # Get hotel coordinates for zone calculation
     hotel_lat, hotel_lon = None, None
-    selected_hotel = None
     if hotel_dicts:
-        selected_hotel = hotel_dicts[0]
-        hotel_lat = selected_hotel.get("lat")
-        hotel_lon = selected_hotel.get("lon")
+        hotel_lat = hotel_dicts[0].get("lat")
+        hotel_lon = hotel_dicts[0].get("lon")
 
-    # Group all places by proximity zones
     zone_groups = {"near": [], "medium": [], "far": [], "remote": []}
 
     if hotel_lat and hotel_lon:
-        # Combine activities and restaurants for grouping
         all_places = []
         for a in activity_dicts:
             a["_type"] = "activity"
@@ -845,18 +819,16 @@ async def compiler_node(state: AgentState) -> dict:
 
         raw_zone_groups = group_places_by_zone(all_places, hotel_lat, hotel_lon)
 
-        # Programmatically optimize each zone's route before giving it to LLM
+        # Nearest-neighbor optimization per zone before passing to the LLM
         for zone, places in raw_zone_groups.items():
             if places:
                 optimization = optimize_day_route.invoke(
                     {"places": places, "hotel_lat": hotel_lat, "hotel_lon": hotel_lon}
                 )
-                # Replace the raw list with the mathematically optimized order
                 zone_groups[zone] = optimization.get("optimized_order", [])
             else:
                 zone_groups[zone] = []
 
-    # Build pre-grouped and OPTIMIZED data for the LLM
     grouped_data = {
         "near_hotel": {
             "description": "Walking distance (< 2km, 10-25 min walk). OPTIMIZED ROUTE PROVIDED.",
@@ -879,15 +851,11 @@ async def compiler_node(state: AgentState) -> dict:
     grouped_json = json.dumps(grouped_data, indent=2, ensure_ascii=False)
     hotel_json = json.dumps(hotel_dicts, indent=2, ensure_ascii=False)
 
-    # ═══════════════════════════════════════════════════════════════════
-    # EXTRACT PERSONALIZATION DATA
-    # ═══════════════════════════════════════════════════════════════════
     num_travelers = user_details.get("num_travelers", 1)
     age_range = user_details.get("age_range", "adults")
     trip_type = user_details.get("trip_type")
     season_suggestion = state.get("season_suggestion")
 
-    # Build personalized narrative guidance
     narrative_style = _get_narrative_style(num_travelers, age_range, trip_type)
     overview_guidance = _get_overview_guidance(trip_type, age_range, num_travelers)
     day_structure_guide = _get_day_structure_guide(age_range, trip_type)
@@ -895,9 +863,6 @@ async def compiler_node(state: AgentState) -> dict:
 
     chat_llm = get_llm_for_role("compiler")
 
-    # ═══════════════════════════════════════════════════════════════════
-    # PERSONALIZED PROMPT
-    # ═══════════════════════════════════════════════════════════════════
     prompt = f"""
 You are writing a practical travel itinerary for a trip to {user_details.get('destination')}.
 
@@ -988,7 +953,6 @@ OUTPUT FORMAT (Markdown)
 Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code blocks. No preamble.
 """
 
-    # Check if we should use ReAct Agent mode
     if USE_REACT_AGENT:
         draft, log = await _run_compiler_agent(user_details, hotel_dicts, grouped_data, t0)
     else:
@@ -1010,22 +974,12 @@ Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code bl
     }
 
 
-# ============================================================================
-# REACT AGENT VERSION
-# ============================================================================
-
-
 async def _run_compiler_agent(user_details: dict, hotel_dicts: list, grouped_data: dict, t0: float) -> tuple:
-    """
-    ReAct Agent version of the compiler.
-    Uses tools to verify and optimize the route before writing.
-    """
+    """ReAct agent compiler — uses tools to optimize routes before writing."""
     logger.info("Running ReAct Agent Compiler with tools...")
 
-    # Get LLM with tools
     llm_with_tools = get_llm_with_tools(TRAVEL_TOOLS)
 
-    # Build context
     hotel_json = json.dumps(hotel_dicts[:1], indent=2, ensure_ascii=False) if hotel_dicts else "{}"
     grouped_json = json.dumps(grouped_data, indent=2, ensure_ascii=False)
 
@@ -1072,20 +1026,16 @@ Start by analyzing the zones and calling optimize_day_route if needed.
         HumanMessage(content=agent_prompt),
     ]
 
-    # Agent loop (max 3 iterations for tool use)
     max_iterations = 3
     for _ in range(max_iterations):
         response = await llm_with_tools.ainvoke(messages, config={"tags": ["final_itinerary"]})
         messages.append(response)
 
-        # Check if there are tool calls
         if hasattr(response, "tool_calls") and response.tool_calls:
-            # Execute tools
             for tool_call in response.tool_calls:
                 tool_name = tool_call.get("name")
                 tool_args = tool_call.get("args", {})
 
-                # Find and execute the tool
                 tool_result = None
                 for tool in TRAVEL_TOOLS:
                     if tool.name == tool_name:
@@ -1098,15 +1048,12 @@ Start by analyzing the zones and calling optimize_day_route if needed.
                 if tool_result is None:
                     tool_result = f"Unknown tool: {tool_name}"
 
-                # Add tool result to messages
                 from langchain_core.messages import ToolMessage
 
                 messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call.get("id", "")))
         else:
-            # No more tool calls, we have the final response
             break
 
-    # Extract final content
     draft = response.content if hasattr(response, "content") else str(response)
     log = log_usage("compiler_agent", t0, response)
 
@@ -1142,7 +1089,6 @@ async def critic_node(state: AgentState) -> dict:
         critique = result.model_dump()
         log = log_usage("critic", t0, result)
 
-        # Determine next step
         if critique.get("approved"):
             next_node = "approved"
         elif critique.get("missing_data"):
