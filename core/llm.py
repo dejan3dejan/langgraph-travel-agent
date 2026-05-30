@@ -6,12 +6,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
 
-# Config flag for agent mode
 USE_REACT_AGENT = os.getenv("USE_REACT_AGENT", "false").lower() == "true"
 
 
 def get_llm_for_role(role: str):
-    """Role-based model selection using stable Google models."""
+    """Return a ChatGoogleGenerativeAI tuned for a specific pipeline role."""
     if role == "critic":
         return get_llm("gemini-2.5-flash-lite", temperature=0.1)
 
@@ -28,7 +27,7 @@ def get_llm_for_role(role: str):
 
 
 def get_llm(model_name: str = "gemini-2.5-flash-lite", temperature: float = 0.7):
-    """Factory function to get an LLM instance."""
+    """Instantiate a Gemini chat model."""
     if "gemini" in model_name.lower():
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:

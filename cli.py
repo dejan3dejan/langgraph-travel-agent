@@ -10,13 +10,11 @@ from rich.prompt import Prompt
 from rich.rule import Rule
 from rich.text import Text
 
-# Local imports - direct because we are in the project root
 from core.orchestrator import TravelOrchestrator
 
 console = Console()
 orchestrator = TravelOrchestrator()
 
-# ASCII Art Banner
 BANNER = """
 [bold cyan]
      ╔═══════════════════════════════════════════════════════════╗
@@ -76,7 +74,7 @@ def print_user_message(text: str):
 
 
 def get_tool_icon(status: str) -> str:
-    """Extract tool icon from status message."""
+    """Map a status message to an emoji icon for the spinner."""
     status_lower = status.lower()
     for tool, icon in TOOL_ICONS.items():
         if tool.replace("_", " ") in status_lower or tool.replace("_", "") in status_lower:
@@ -134,7 +132,6 @@ async def main():
             full_response = ""
             current_status = "Atlas is thinking..."
 
-            # Use Live to handle the combined spinner + streaming text
             with console.status(f"[dim cyan]🤔 {current_status}[/dim cyan]", spinner="dots") as status:
                 async for event in orchestrator.stream_chat(user_text, chat_history):
                     if event["type"] == "reset":
@@ -156,7 +153,6 @@ async def main():
                         status.update(f"[cyan]{icon} {current_status}[/cyan]")
 
                     elif event["type"] == "token":
-                        # Stop the spinner when tokens start arriving
                         if not full_response:
                             status.stop()
                             console.print()
@@ -166,19 +162,16 @@ async def main():
 
                         token = event["content"]
                         full_response += token
-                        # Handle newlines to maintain the visual border
                         if "\n" in token:
                             token = token.replace("\n", "\n[cyan]│[/cyan]  ")
                         console.print(token, end="")
                         sys.stdout.flush()
 
-                # Finish the Atlas message box
                 if full_response:
                     console.print()
                     console.print("[cyan]│[/cyan]")
                     console.print("[bold cyan]└────────────────────────────────────────[/bold cyan]")
 
-                # If the stream ends and it's a markdown itinerary, reprint it pretty
                 if "# Day 1" in full_response or "## Day" in full_response:
                     console.print()
                     console.print(
@@ -192,7 +185,6 @@ async def main():
                         )
                     )
 
-                # Update history
                 chat_history.append({"role": "user", "content": user_text})
                 chat_history.append({"role": "model", "content": full_response})
                 console.print()

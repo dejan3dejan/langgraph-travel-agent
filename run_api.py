@@ -1,6 +1,4 @@
-"""
-Convenience script to run the FastAPI server.
-"""
+"""Run the FastAPI dev server: python run_api.py"""
 
 import uvicorn
 

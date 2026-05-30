@@ -1,4 +1,4 @@
-"""Tools for the Travel Companion Agent."""
+"""LangChain tools for geocoding, distance, zone classification, and route optimization."""
 
 from typing import Any
 
@@ -12,15 +12,11 @@ logger = get_logger(__name__)
 
 
 class GeocodeInput(BaseModel):
-    """Input for geocoding tool."""
-
     address: str = Field(description="The address or place name to geocode")
     city: str | None = Field(default=None, description="City name for context")
 
 
 class DistanceInput(BaseModel):
-    """Input for distance calculation tool."""
-
     lat1: float = Field(description="Latitude of first point")
     lon1: float = Field(description="Longitude of first point")
     lat2: float = Field(description="Latitude of second point")
@@ -28,8 +24,6 @@ class DistanceInput(BaseModel):
 
 
 class ZoneCheckInput(BaseModel):
-    """Input for zone check tool."""
-
     place_lat: float = Field(description="Latitude of the place to check")
     place_lon: float = Field(description="Longitude of the place to check")
     hotel_lat: float = Field(description="Latitude of the hotel (base)")
@@ -37,8 +31,6 @@ class ZoneCheckInput(BaseModel):
 
 
 class RouteOptimizerInput(BaseModel):
-    """Input for route optimization."""
-
     places: list[dict[str, Any]] = Field(description="List of places with lat/lon to optimize")
     hotel_lat: float = Field(description="Hotel latitude (start/end point)")
     hotel_lon: float = Field(description="Hotel longitude (start/end point)")
@@ -63,9 +55,8 @@ def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> di
     """
     distance_km = haversine_distance(lat1, lon1, lat2, lon2)
 
-    # Estimate travel time (rough estimates)
-    walk_time_min = int(distance_km * 12)  # ~5 km/h walking
-    transit_time_min = int(distance_km * 3)  # ~20 km/h with transit
+    walk_time_min = int(distance_km * 12)
+    transit_time_min = int(distance_km * 3)
 
     return {
         "distance_km": round(distance_km, 2),
@@ -117,14 +108,12 @@ def optimize_day_route(places: list[dict[str, Any]], hotel_lat: float, hotel_lon
     if not places:
         return {"optimized_order": [], "total_distance_km": 0}
 
-    # Simple nearest-neighbor algorithm
     remaining = list(places)
     ordered = []
     current_lat, current_lon = hotel_lat, hotel_lon
     total_distance = 0
 
     while remaining:
-        # Find nearest place
         nearest = min(
             remaining, key=lambda p: haversine_distance(current_lat, current_lon, p.get("lat", 0), p.get("lon", 0))
         )
@@ -144,7 +133,6 @@ def optimize_day_route(places: list[dict[str, Any]], hotel_lat: float, hotel_lon
         current_lat, current_lon = nearest.get("lat", 0), nearest.get("lon", 0)
         remaining.remove(nearest)
 
-    # Add return to hotel
     return_dist = haversine_distance(current_lat, current_lon, hotel_lat, hotel_lon)
     total_distance += return_dist
 
@@ -152,23 +140,20 @@ def optimize_day_route(places: list[dict[str, Any]], hotel_lat: float, hotel_lon
         "optimized_order": ordered,
         "total_distance_km": round(total_distance, 2),
         "return_to_hotel_km": round(return_dist, 2),
-        "estimated_travel_time_min": int(total_distance * 3),  # ~20 km/h average
+        "estimated_travel_time_min": int(total_distance * 3),
     }
 
 
 def group_places_by_zone(places: list[dict], hotel_lat: float, hotel_lon: float) -> dict[str, list[dict]]:
-    """
-    Group places into zones based on distance from hotel.
-    This is a helper function (not a tool) for pre-processing data.
-    """
-    zones = {"near": [], "medium": [], "far": [], "remote": []}  # < 2km  # 2-5km  # 5-15km  # > 15km
+    """Group places into proximity zones: near (<2km), medium (2-5), far (5-15), remote (15+)."""
+    zones = {"near": [], "medium": [], "far": [], "remote": []}
 
     for place in places:
         lat = place.get("lat")
         lon = place.get("lon")
 
         if lat is None or lon is None:
-            zones["remote"].append(place)  # Unknown locations go to remote
+            zones["remote"].append(place)
             continue
 
         dist = haversine_distance(lat, lon, hotel_lat, hotel_lon)

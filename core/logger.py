@@ -12,7 +12,6 @@ logger.add(
     colorize=True,
 )
 
-# Add file handler for production logs
 log_file = Path("logs/travel_companion.log")
 log_file.parent.mkdir(exist_ok=True)
 
@@ -25,7 +24,5 @@ logger.add(
 )
 
 
-# Create logger instance for import (optional, most use get_logger)
 def get_logger(name: str):
-    """Get logger instance for specific module."""
     return logger.bind(module=name)

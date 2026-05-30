@@ -1,4 +1,4 @@
-"""Smoke test — validates all imports, schemas, LLM config, and graph compilation."""
+"""Smoke tests — validates imports, schemas, LLM config, and graph compilation (no DB/API needed)."""
 
 import sys
 

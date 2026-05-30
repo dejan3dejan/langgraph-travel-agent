@@ -1,6 +1,4 @@
-"""
-Database configuration and session management.
-"""
+"""Database configuration, models, and session management."""
 
 import os
 import uuid
@@ -13,22 +11,12 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 from .logger import get_logger
 
-# Import logger
-try:
-    from .logger import get_logger
-
-    logger = get_logger(__name__)
-except Exception:
-    import logging
-
-    logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 load_dotenv()
 
-# Database URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/travel_companion")
 
-# Create engine with connection pooling
 engine = create_engine(
     DATABASE_URL,
     echo=False,
@@ -38,17 +26,11 @@ engine = create_engine(
     pool_recycle=1800,
 )
 
-# Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Base class for models
 Base = declarative_base()
 
 
-# Database Models
 class ChatSession(Base):
-    """Chat session model."""
-
     __tablename__ = "chat_sessions"
 
     session_id = Column(String, primary_key=True, index=True)
@@ -59,62 +41,41 @@ class ChatSession(Base):
 
 
 class Trip(Base):
-    """Structured Trip Data for Analytics."""
-
     __tablename__ = "trips"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id = Column(String, ForeignKey("chat_sessions.session_id"), index=True)
-
-    # Structured Fields for Querying
     destination = Column(String, index=True)
     duration = Column(String)
     budget = Column(String)
     interests = Column(String)
-
-    # The Full Result
     itinerary_text = Column(Text)
-
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class GeocodingCache(Base):
-    """Cache for geocoding results."""
-
     __tablename__ = "geocoding_cache"
 
     query = Column(String, primary_key=True, index=True)
     lat = Column(Float, nullable=True)
     lon = Column(Float, nullable=True)
-    status = Column(String)  # "exact", "neighborhood", "failed"
+    status = Column(String)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class SemanticCache(Base):
-    """Cache for research results with vector embeddings."""
-
     __tablename__ = "semantic_cache"
 
     id = Column(String, primary_key=True)
-
-    # Query Info
     query_text = Column(Text, index=True)
-    query_embedding = Column(Vector(None))  # Changed from Vector(768)
-
-    # Categorization
+    query_embedding = Column(Vector(None))
     category = Column(String, index=True)
     destination = Column(String, index=True)
-
-    # Cached Results (JSON)
     results = Column(Text)
     result_count = Column(Float)
-
-    # Metadata
     created_at = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
     last_used = Column(DateTime, default=lambda: datetime.now(UTC))
     use_count = Column(Float, default=0)
-
-    # Quality Metrics
     avg_rating = Column(Float)
     freshness_days = Column(Float)
 
@@ -139,22 +100,18 @@ def init_db():
     """Create all tables and enable PGVector."""
     logger.info("Initializing database...")
 
-    # 1. Enable PGVector first
     enable_pgvector()
 
-    # 2. Create all tables
     logger.info("Creating database tables...")
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created successfully")
 
-    # 3. List created tables
     from sqlalchemy import inspect
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
     logger.info(f"Tables in database: {', '.join(tables)}")
 
-    # 4. Create vector indexes (optional, only if table exists)
     try:
         create_vector_indexes()
     except Exception as e:
@@ -172,13 +129,12 @@ def get_db():
 
 
 def create_vector_indexes():
-    """Create IVFFlat index on embeddings for fast similarity search."""
+    """Create IVFFlat index on semantic_cache embeddings for fast similarity search."""
     from sqlalchemy import text
 
     logger.info("Creating vector indexes...")
 
     with engine.connect() as conn:
-        # Check if table exists first
         table_exists = conn.execute(
             text(
                 """
@@ -202,7 +158,6 @@ def create_vector_indexes():
             return
 
         try:
-            # IVFFlat index (faster than exact search, good for >10k vectors)
             conn.execute(
                 text(
                     """
