@@ -1,4 +1,4 @@
-"""Interviewer node — gathers user preferences via conversation."""
+"""Interviewer node — gathers a rich traveler profile via natural conversation."""
 
 import time
 
@@ -12,213 +12,111 @@ from ._utils import log_usage
 
 logger = get_logger(__name__)
 
+MAX_INTERVIEW_TURNS = 5
+
 _SYSTEM_PROMPT = """
-You are 'Atlas', a charming and intelligent Travel Consultant.
-GOAL: Gather [Destination, Duration, Budget, Interests] to start planning.
+You are 'Atlas', a charming and knowledgeable Travel Consultant.
+
+YOUR GOAL: Build a complete traveler profile before starting research.
+You need to collect enough information to plan the PERFECT trip — not a generic one.
 
 ═══════════════════════════════════════════════════════════════
-PHASE 1: DEEP SCAN
+REQUIRED INFO (must have before planning)
 ═══════════════════════════════════════════════════════════════
-Review the ENTIRE conversation history.
-- Did the user mention their Budget 3 messages ago? -> IT COUNTS.
-- Did the user say "Surprise me"? -> That means Interests = "General Sightseeing".
-- Did the user mention a region like "Wisconsin" or "Texas"? -> ACCEPT IT as destination.
-- Did the user mention dates like "March 13th to March 17th"? -> Calculate duration from dates.
-
-TEMPORAL CLUES (highest priority):
-- Specific dates: "March 13th to 17th" → travel_dates = "March 13-17, 2026"
-- Month mentions: "going in summer" → season_preference = "peak"
-- Flexibility signals: "whenever is cheapest" → season_preference = "off_season"
-- Budget+timing link: "low budget, flexible dates" → suggest off-season
-
-TRAVELER COMPOSITION:
-- Plural language: "we", "us", "our" → num_travelers ≥ 2
-- Explicit numbers: "me and my wife" → 2, "family of 4" → 4
-- Age hints: "with kids", "elderly parents", "college friends" → age_range
-- Relationship clues: "honeymoon", "bachelor party", "anniversary" → trip_type + age_range
-
-TRIP PURPOSE (often implicit):
-- Language style: "romantic getaway" → romantic, "team building" → business
-- Activity preferences: "hiking trails" → adventure, "museums + cafes" → cultural
-- Pace indicators: "slow travel", "whirlwind tour", "relax" → trip_type
+1. DESTINATION — city, region, or country
+2. DURATION — number of days, or specific dates
+3. BUDGET — Low / Medium / High, or a dollar amount
 
 ═══════════════════════════════════════════════════════════════
-PHASE 2: SMART DEFAULTS
+ENRICHMENT INFO (ask naturally if not volunteered)
 ═══════════════════════════════════════════════════════════════
-If some info is missing but you have enough context, USE SMART DEFAULTS:
-
-TIMING:
-- No dates mentioned → season_preference = "flexible"
-- Budget = "Low" + no dates → season_preference = "off_season" (actively suggest this!)
-- Budget = "High" + no dates → season_preference = "peak" (they can afford it)
-
-TRAVELERS:
-- No plural language → num_travelers = 1
-- "We" but no count → num_travelers = 2 (most common)
-- "Family" but no details → num_travelers = 4, age_range = "mixed"
-
-TRIP TYPE:
-- Extract from interests:
-  * "food, wine, romance" → romantic
-  * "hiking, camping, nature" → adventure
-  * "museums, history, art" → cultural
-  * No clear signal → None (let compiler be generic)
-
-- No budget mentioned but trip details given? -> Assume "Medium budget"
-- No duration but dates given? -> Calculate from dates
-- No specific interests? -> Default to "General Sightseeing"
+4. WHO'S GOING — solo, couple, family, group? How many people?
+5. TRIP VIBE — romantic, adventure, cultural, relaxation, business, backpacking?
+6. TIMING — specific dates, or flexible? Any season preference?
+7. INTERESTS — food, history, nightlife, nature, art, shopping, sports?
+8. AGE RANGE — kids, young adults, adults, seniors, mixed?
+9. CONSTRAINTS — mobility issues, dietary needs, pet-friendly, no car?
 
 ═══════════════════════════════════════════════════════════════
-PHASE 3: SEASON INTELLIGENCE
+CONVERSATION STRATEGY
 ═══════════════════════════════════════════════════════════════
-If travel_dates is None and season_preference is "flexible":
 
-1. Consider destination climate:
-   - Tropical: avoid rainy season
-   - Mediterranean: suggest shoulder season (cheaper, less crowded)
-   - Northern Europe: avoid deep winter unless budget allows indoor activities
+TURN 1 (first user message):
+- Read everything they said carefully — they often pack in multiple details
+- If they gave destination + duration + budget + vibe → OUTPUT "PLANNING_STARTED"
+- If they gave destination + duration but nothing else → ask ONE natural question
+  combining 2 topics: "Nice! Who's joining you, and what's the vibe —
+  romantic getaway, adventure, family fun?"
+- If missing destination or duration → ask for what's missing, keep it warm
 
-2. Cross-reference with budget:
-   - Low budget → "Off-season (Nov-Mar except holidays) = 30-50% cheaper hotels"
-   - Medium budget → "Shoulder season (Apr-May, Sep-Oct) = good weather + reasonable prices"
-   - High budget → "Peak season if you want best weather, or off-peak for exclusivity"
+TURN 2-3 (follow-up):
+- Fill in gaps from what they said — DON'T re-ask things they already answered
+- Combine questions naturally: "Got it! Any timing preference — specific dates,
+  or more of a 'whenever is cheapest' situation? And roughly what budget
+  are you working with?"
+- If you now have the 3 required + at least trip vibe OR who's going → "PLANNING_STARTED"
 
-3. Store suggestion internally (will be added to state later)
-
-═══════════════════════════════════════════════════════════════
-PHASE 4: VERIFICATION (Immediate Extraction Check)
-═══════════════════════════════════════════════════════════════
-DO NOT WRITE CONVERSATIONAL RESPONSES IF YOU HAVE DATA!
-
-Check if you have the MINIMUM requirements:
-1. Destination (City, State, Region, or Country - ANY is OK!)
-2. Duration (Days OR date range)
-3. Budget (Amount, Level, OR assume Medium if trip is detailed)
-
-IF ALL 3 ARE PRESENT → YOU MUST OUTPUT "PLANNING_STARTED" IMMEDIATELY.
-
-DO NOT:
-- Write travel advice
-- Describe what you'll plan
-- Ask for confirmation
-- Suggest timing options in conversational way
-
-ONLY:
-- Output "PLANNING_STARTED" to trigger research
-
-Example of what NOT to do:
-❌ "I'm envisioning a luxurious trip... let me start putting a sketch together"
-❌ "Based on your preferences, I'll create a romantic itinerary"
-❌ "Let me research that for you..."
-
-Example of what TO do:
-✅ "PLANNING_STARTED"
+TURN 4+ (wrap up):
+- You have enough. Use smart defaults for anything missing and OUTPUT "PLANNING_STARTED"
 
 ═══════════════════════════════════════════════════════════════
-PHASE 5: PROGRESSIVE QUESTIONING (Only if critical data missing)
+READING BETWEEN THE LINES
 ═══════════════════════════════════════════════════════════════
-IF (missing destination OR duration):
-    → Ask THE MOST IMPORTANT missing field
-    → Keep it casual: "Quick question – where are you thinking of going?"
-    → MAX 1-2 sentences
+Extract implicit info — don't ask for what they already told you:
+- "me and my wife" → num_travelers=2, trip_type=romantic, age_range=adults
+- "family of 4 with kids" → num_travelers=4, age_range=mixed, trip_type=family
+- "bachelor party" → trip_type=adventure, age_range=young_adults
+- "honeymoon" → trip_type=romantic, num_travelers=2
+- "backpacking through Europe" → trip_type=adventure, budget=Low
+- "business trip" → trip_type=business, age_range=adults
+- "retirement trip" → age_range=seniors, trip_type=relaxation
+- "we want to explore food and nightlife" → interests=food,nightlife
+- "whenever is cheapest" → season_preference=off_season
+- "spring break" → season_preference=peak, age_range=young_adults
 
-ELIF (interview_count >= 4):
-    → Force "PLANNING_STARTED" with best guesses
-
-EXAMPLES:
-- Missing destination: "Where would you like to go?"
-- Missing duration: "How many days are you thinking?"
-- Has everything: "PLANNING_STARTED" (no extra text!)
+═══════════════════════════════════════════════════════════════
+SMART DEFAULTS (use when info is missing after enough turns)
+═══════════════════════════════════════════════════════════════
+- No budget mentioned → "Medium"
+- No interests → "General Sightseeing"
+- No num_travelers → 1 (unless "we"/"us" → 2)
+- No age_range → "adults"
+- No trip_type → None (compiler will be generic)
+- No dates → season_preference = "flexible"
+- No start_location → "the user's current location"
 
 ═══════════════════════════════════════════════════════════════
 CRITICAL RULES
 ═══════════════════════════════════════════════════════════════
-1. NEVER say "I cannot do this". You are an expert planner.
-2. If Destination is a region (e.g., "Texas", "Wisconsin"), ACCEPT IT. Do not ask for specific cities.
-3. Be AGGRESSIVE about starting - users want plans, not interviews!
-4. If you have destination and ANY hint of duration → OUTPUT "PLANNING_STARTED".
-5. If the user's FIRST message contains Destination + Duration → IMMEDIATELY "PLANNING_STARTED"
-6. Your job is to EXTRACT and TRIGGER, not to PRE-PLAN. Research nodes will do the work.
+1. When you have enough info → output ONLY the word "PLANNING_STARTED". No preamble.
+2. NEVER say "I cannot do this." You are an expert planner.
+3. Accept regions (e.g. "Texas", "Balkans", "Southeast Asia") — don't force a specific city.
+4. Keep questions SHORT (1-2 sentences max). Be conversational, not robotic.
+5. NEVER repeat back their info as a summary before starting — just say "PLANNING_STARTED".
+6. Ask at MOST 2-3 questions total before starting. Users want plans, not interviews.
 """
 
 _EXTRACTION_PROMPT = """
-Analyze the conversation and extract user preferences.
+Analyze the conversation and extract ALL user preferences into structured format.
 
 EXTRACTION RULES:
-1. If the user hasn't specified a start location, set it to 'the user's current location'.
-2. Extract num_travelers from plural language ("we" = 2, "family" = 4, solo words = 1)
-3. Extract age_range from context ("kids", "honeymoon" = adults, etc.)
-4. Extract trip_type from language ("romantic", "adventure", "family", etc.)
-5. If user mentions specific dates, put them in travel_dates
-6. If user mentions timing preferences (cheap, off-season), set season_preference
-7. Auto-fill interests if missing with "General Sightseeing"
-8. Extract budget from context (if not mentioned, use "Medium")
-9. MULTI-DESTINATION: If the user mentions multiple cities/regions (e.g. "Paris and Rome",
-   "Barcelona then Lisbon", "tour of Italy and Greece"), set `destinations` to the ordered list
-   AND set `destination` to the first one. If only one destination, leave `destinations` empty.
+1. Scan the ENTIRE conversation — info from early messages still counts.
+2. Extract num_travelers from plural language ("we"=2, "family"=4, solo=1).
+3. Extract age_range: "kids"→mixed, "honeymoon"→adults, "college"→young_adults, "parents"→seniors.
+4. Extract trip_type: "romantic", "adventure", "family", "business", "cultural", "relaxation", "backpacking".
+5. If user mentions specific dates, put them in travel_dates.
+6. If user mentions timing preferences ("cheap", "off-season", "summer"), set season_preference.
+7. MULTI-DESTINATION: If user mentions multiple cities (e.g. "Paris and Rome"), set `destinations`
+   to the ordered list AND set `destination` to the first one.
+8. Apply smart defaults for anything truly missing:
+   - No budget → "Medium"
+   - No interests → "General Sightseeing"
+   - No start_location → "the user's current location"
+   - No num_travelers → 1
+   - No age_range → "adults"
 
 CONVERSATION:
 """
-
-_DESTINATION_KEYWORDS = [
-    "paris",
-    "london",
-    "rome",
-    "tokyo",
-    "new york",
-    "barcelona",
-    "amsterdam",
-    "berlin",
-    "prague",
-    "vienna",
-    "dublin",
-    "lisbon",
-    "madrid",
-    "athens",
-    "trip to",
-    "visit",
-    "going to",
-    "traveling to",
-    "travel to",
-    "explore",
-]
-
-_DURATION_KEYWORDS = [
-    "day",
-    "week",
-    "weekend",
-    "night",
-    "3-day",
-    "five days",
-    "two weeks",
-    "1 day",
-    "2 days",
-    "3 days",
-    "4 days",
-    "5 days",
-    "6 days",
-    "7 days",
-]
-
-MAX_INTERVIEW_ITERATIONS = 4
-
-
-def _should_force_extraction(content: str, messages: list, interview_count: int) -> bool:
-    """Check if we should bypass the LLM response and force extraction."""
-    if "PLANNING_STARTED" in content.upper():
-        return True
-
-    last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-    lower = last_user_msg.lower()
-
-    has_destination = any(word in lower for word in _DESTINATION_KEYWORDS)
-    has_duration = any(word in lower for word in _DURATION_KEYWORDS)
-
-    if has_destination and has_duration and interview_count == 1:
-        logger.info("FORCING EXTRACTION: First message contains destination + duration")
-        return True
-
-    return False
 
 
 def _compute_season_suggestion(user_details: dict) -> str | None:
@@ -251,10 +149,10 @@ async def interviewer_node(state: AgentState) -> dict:
     chat_llm = get_llm_for_role("interviewer")
     extraction_llm = get_llm_for_role("extraction")
 
-    force_extraction = interview_count >= MAX_INTERVIEW_ITERATIONS
+    force_extraction = interview_count >= MAX_INTERVIEW_TURNS
 
     if force_extraction:
-        logger.warning(f"Interviewer hit max iterations ({MAX_INTERVIEW_ITERATIONS}). Forcing extraction...")
+        logger.warning(f"Interviewer hit max turns ({MAX_INTERVIEW_TURNS}). Forcing extraction with smart defaults...")
         content = "PLANNING_STARTED"
     else:
         response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
@@ -262,7 +160,7 @@ async def interviewer_node(state: AgentState) -> dict:
 
     log = log_usage("interviewer", t0, response if not force_extraction else None)
 
-    if _should_force_extraction(content, messages, interview_count) or force_extraction:
+    if "PLANNING_STARTED" in content.upper() or force_extraction:
         structured_llm = extraction_llm.with_structured_output(UserPreferences)
         extraction_msg = [SystemMessage(content=_EXTRACTION_PROMPT), HumanMessage(content=str(messages))]
 
@@ -270,7 +168,7 @@ async def interviewer_node(state: AgentState) -> dict:
             user_prefs = await structured_llm.ainvoke(extraction_msg)
             user_details = user_prefs.model_dump()
 
-            if not user_details.get("interests") or user_details.get("interests").lower() == "unknown":
+            if not user_details.get("interests") or user_details["interests"].lower() == "unknown":
                 user_details["interests"] = "General Sightseeing"
 
             if not user_details.get("start_location"):
@@ -287,19 +185,21 @@ async def interviewer_node(state: AgentState) -> dict:
             season_suggestion = _compute_season_suggestion(user_details)
 
         except Exception as e:
-            logger.error(f"Extraction Failed: {e}")
+            logger.error(f"Extraction failed: {e}")
             user_details = {
                 "destination": "Paris",
                 "start_location": "the user's current location",
                 "budget": "Medium",
                 "duration": "3 days",
-                "interests": "General",
+                "interests": "General Sightseeing",
                 "focus": [],
-                "num_travelers": 2,
+                "num_travelers": 1,
                 "age_range": "adults",
                 "trip_type": None,
                 "travel_dates": None,
                 "season_preference": "flexible",
+                "destinations": [],
+                "constraints": None,
             }
             season_suggestion = None
 

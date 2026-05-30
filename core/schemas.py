@@ -9,13 +9,27 @@ class UserPreferences(BaseModel):
         default_factory=list,
         description="All destinations in order (e.g. ['Paris', 'Rome']). Empty means single-destination trip.",
     )
-    start_location: str = Field(description="Where the user is starting from")
+    start_location: str = Field(default="the user's current location", description="Where the user is starting from")
     duration: str = Field(description="Total length of stay (e.g. 7 days)")
-    budget: str = Field(description="Budget level (Low, Medium, High)")
-    interests: str = Field(description="Comma-separated interests")
+    budget: str = Field(default="Medium", description="Budget level (Low, Medium, High)")
+    interests: str = Field(default="General Sightseeing", description="Comma-separated interests")
+    num_travelers: int = Field(default=1, description="Number of people traveling")
+    age_range: str = Field(
+        default="adults",
+        description="Age group: kids, young_adults, adults, seniors, or mixed",
+    )
+    trip_type: str | None = Field(
+        default=None,
+        description="Trip style: romantic, family, adventure, business, workation, relaxation, cultural, or None",
+    )
+    travel_dates: str | None = Field(default=None, description="Specific dates if mentioned (e.g. 'March 13-17, 2026')")
+    season_preference: str = Field(
+        default="flexible",
+        description="Timing preference: peak, off_season, shoulder, flexible",
+    )
     constraints: str | None = Field(
         default=None,
-        description="Specific constraints (e.g., 'pet friendly', 'smoking allowed', 'no car', 'party friendly')",
+        description="Specific constraints (e.g., 'pet friendly', 'wheelchair accessible', 'no car')",
     )
     focus: list[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
 
