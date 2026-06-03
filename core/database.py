@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String, Text, create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 from .logger import get_logger
 
@@ -30,14 +30,50 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    preferences = relationship("UserPreference", back_populates="user", uselist=False)
+    sessions = relationship("ChatSession", back_populates="user")
+    trips = relationship("Trip", back_populates="user")
+
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), unique=True, index=True, nullable=False)
+    default_budget = Column(String, default="Medium")
+    default_interests = Column(String, default="General Sightseeing")
+    num_travelers = Column(Integer, default=1)
+    age_range = Column(String, default="adults")
+    trip_type = Column(String, nullable=True)
+    start_location = Column(String, nullable=True)
+    constraints = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    user = relationship("User", back_populates="preferences")
+
+
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
     session_id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, index=True, nullable=True)
-    data = Column(JSON)  # Chat History
+    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=True)
+    title = Column(String, default="New Chat")
+    data = Column(JSON)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    user = relationship("User", back_populates="sessions")
+    trips = relationship("Trip", back_populates="session")
 
 
 class Trip(Base):
@@ -45,12 +81,16 @@ class Trip(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id = Column(String, ForeignKey("chat_sessions.session_id"), index=True)
+    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=True)
     destination = Column(String, index=True)
     duration = Column(String)
     budget = Column(String)
     interests = Column(String)
     itinerary_text = Column(Text)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    user = relationship("User", back_populates="trips")
+    session = relationship("ChatSession", back_populates="trips")
 
 
 class GeocodingCache(Base):
