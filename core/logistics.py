@@ -37,6 +37,30 @@ def _geocode_sync(address: str, timeout: int = 10):
     return geolocator.geocode(address, timeout=timeout)
 
 
+def _lookup_geocode_cache(query: str, stats: dict[str, int]) -> tuple[float | None, float | None, str] | None:
+    """Check the DB geocoding cache. Returns a (lat, lon, status) hit, or None on a miss.
+
+    Shared by the sync and async geocoders so the cache logic lives in one place.
+    """
+    db = SessionLocal()
+    try:
+        cached = db.query(GeocodingCache).filter(GeocodingCache.query == query).first()
+        if cached:
+            if cached.status in ["exact", "neighborhood"]:
+                stats["cache_hits"] += 1
+                return cached.lat, cached.lon, cached.status
+            if cached.status == "failed" and (datetime.now(UTC) - cached.created_at.replace(tzinfo=UTC)) < timedelta(
+                hours=24
+            ):
+                stats["cache_hits"] += 1
+                return None, None, "failed"
+    except Exception as e:
+        logger.warning(f"Cache lookup failed: {e}")
+    finally:
+        db.close()
+    return None
+
+
 def get_coordinates(
     address: str,
     neighborhood: str | None = None,
@@ -54,22 +78,9 @@ def get_coordinates(
 
     query = address.strip()
 
-    db = SessionLocal()
-    try:
-        cached = db.query(GeocodingCache).filter(GeocodingCache.query == query).first()
-        if cached:
-            if cached.status in ["exact", "neighborhood"]:
-                stats["cache_hits"] += 1
-                return cached.lat, cached.lon, cached.status
-            if cached.status == "failed" and (datetime.now(UTC) - cached.created_at.replace(tzinfo=UTC)) < timedelta(
-                hours=24
-            ):
-                stats["cache_hits"] += 1
-                return None, None, "failed"
-    except Exception as e:
-        logger.warning(f"Cache lookup failed: {e}")
-    finally:
-        db.close()
+    cached = _lookup_geocode_cache(query, stats)
+    if cached is not None:
+        return cached
 
     res = (None, None, "failed")
     for i in range(retries + 1):
@@ -119,22 +130,9 @@ async def aget_coordinates(
 
     query = address.strip()
 
-    db = SessionLocal()
-    try:
-        cached = db.query(GeocodingCache).filter(GeocodingCache.query == query).first()
-        if cached:
-            if cached.status in ["exact", "neighborhood"]:
-                stats["cache_hits"] += 1
-                return cached.lat, cached.lon, cached.status
-            if cached.status == "failed" and (datetime.now(UTC) - cached.created_at.replace(tzinfo=UTC)) < timedelta(
-                hours=24
-            ):
-                stats["cache_hits"] += 1
-                return None, None, "failed"
-    except Exception as e:
-        logger.warning(f"Cache lookup failed: {e}")
-    finally:
-        db.close()
+    cached = _lookup_geocode_cache(query, stats)
+    if cached is not None:
+        return cached
 
     res = (None, None, "failed")
     for i in range(retries + 1):
