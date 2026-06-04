@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 
 from api.chat import router as chat_router
+from api.users import router as users_router
 from core.database import SessionLocal, engine, init_db
 from core.logger import get_logger
 from core.semantic_cache import get_cache_stats
@@ -74,8 +75,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _allowed_origins],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
 
 
@@ -142,6 +143,7 @@ async def observability_middleware(request: Request, call_next):
 
 
 app.include_router(chat_router, prefix="/api", tags=["chat"])
+app.include_router(users_router, prefix="/api/users", tags=["users"])
 
 
 @app.get("/")
