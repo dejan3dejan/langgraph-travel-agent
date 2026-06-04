@@ -50,8 +50,16 @@ async def critic_node(state: AgentState) -> dict:
             next_node = "compiler"
 
     except Exception as e:
-        logger.error(f"Critic Error: {e}")
-        critique = {"approved": True, "feedback": "Auto Approved (Critic Error)", "score": 10, "missing_data": []}
+        # Fail open: release the draft so the user still gets an itinerary,
+        # but do NOT fake a passing review — flag that the check was skipped.
+        logger.error(f"Critic failed, releasing draft without review: {e}")
+        critique = {
+            "approved": True,
+            "feedback": "Automated quality review was skipped due to an internal error.",
+            "score": None,
+            "missing_data": [],
+            "review_status": "error",
+        }
         next_node = "approved"
         log = log_usage("critic", t0)
 
