@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from core.database import ChatSession, SessionLocal, Trip, get_db
+from core.database import ChatSession, SessionLocal, Trip, User, get_db
 from core.logger import get_logger
 from core.orchestrator import TravelOrchestrator
+
+from .auth import get_current_user
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -21,7 +23,6 @@ orchestrator = TravelOrchestrator()
 
 
 class ChatMessage(BaseModel):
-    user_id: str | None = None
     session_id: str | None = None
     message: str = Field(..., min_length=1, max_length=2000)
 
@@ -33,21 +34,29 @@ class ChatResponse(BaseModel):
     itinerary: str | None = None
 
 
-def get_or_create_session(db: Session, session_id: str | None, user_id: str | None) -> tuple[str, ChatSession]:
+def get_or_create_session(db: Session, session_id: str | None, user: User | None) -> tuple[str, ChatSession]:
     sid = session_id or str(uuid.uuid4())
     db_session = db.query(ChatSession).filter(ChatSession.session_id == sid).first()
 
     if not db_session:
-        db_session = ChatSession(session_id=sid, user_id=user_id, data={"history": []})
+        db_session = ChatSession(
+            session_id=sid,
+            user_id=user.id if user else None,
+            data={"history": []},
+        )
         db.add(db_session)
         db.commit()
     return sid, db_session
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
-    """Standard non-streaming chat endpoint."""
-    session_id, db_session = get_or_create_session(db, chat_message.session_id, chat_message.user_id)
+async def chat(
+    chat_message: ChatMessage,
+    user: User | None = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Standard non-streaming chat endpoint. Works for both anonymous and authenticated users."""
+    session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
 
@@ -55,6 +64,8 @@ async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
         response_text, updated_history, _, user_details = await orchestrator.chat(user_text, history)
 
         db_session.data["history"] = updated_history
+        if not db_session.title or db_session.title == "New Chat":
+            db_session.title = user_text[:60]
         flag_modified(db_session, "data")
         db.commit()
 
@@ -62,6 +73,7 @@ async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
             try:
                 new_trip = Trip(
                     session_id=session_id,
+                    user_id=user.id if user else None,
                     destination=str(user_details.get("destination", "Unknown")),
                     duration=str(user_details.get("duration", "Unknown")),
                     budget=str(user_details.get("budget", "Unknown")),
@@ -86,11 +98,19 @@ async def chat(chat_message: ChatMessage, db: Session = Depends(get_db)):
 
 
 @router.post("/chat/stream")
-async def chat_stream(chat_message: ChatMessage, db: Session = Depends(get_db)):
-    """Streaming chat endpoint with guaranteed persistence."""
-    session_id, db_session = get_or_create_session(db, chat_message.session_id, chat_message.user_id)
+async def chat_stream(
+    chat_message: ChatMessage,
+    user: User | None = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Streaming chat endpoint with guaranteed persistence. Supports anonymous and authenticated."""
+    session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
+
+    if not db_session.title or db_session.title == "New Chat":
+        db_session.title = user_text[:60]
+        db.commit()
 
     async def event_generator():
         accumulated_data = {"itinerary": "", "completed": False, "start_time": datetime.now(UTC)}
@@ -129,6 +149,7 @@ async def chat_stream(chat_message: ChatMessage, db: Session = Depends(get_db)):
                         if "# Day 1" in accumulated_data["itinerary"] or "##" in accumulated_data["itinerary"]:
                             new_trip = Trip(
                                 session_id=session_id,
+                                user_id=user.id if user else None,
                                 destination="Extracted from stream",
                                 itinerary_text=accumulated_data["itinerary"],
                             )
