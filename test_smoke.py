@@ -11,7 +11,7 @@ def main():
         from core.llm import get_llm_for_role
         from core.logistics import haversine_distance
         from core.schemas import ItineraryCritique, Restaurant, UserPreferences
-        from core.tools import TRAVEL_TOOLS, group_places_by_zone
+        from core.tools import group_places_by_zone, optimize_day_route
 
         print("[OK] All core imports")
     except Exception as e:
@@ -99,16 +99,19 @@ def main():
         errors.append(f"FastAPI import: {e}")
         print(f"[FAIL] FastAPI import: {e}")
 
-    # 8. Tools
+    # 8. Route optimization
     try:
-        assert len(TRAVEL_TOOLS) == 4
-        tool_names = [t.name for t in TRAVEL_TOOLS]
-        assert "optimize_day_route" in tool_names
-        assert "calculate_distance" in tool_names
-        print(f"[OK] Tools: {tool_names}")
+        route = optimize_day_route(
+            [{"name": "A", "lat": 48.857, "lon": 2.352}, {"name": "B", "lat": 48.860, "lon": 2.349}],
+            48.856,
+            2.352,
+        )
+        assert "optimized_order" in route
+        assert len(route["optimized_order"]) == 2
+        print(f"[OK] Route optimization: {route['total_distance_km']} km")
     except Exception as e:
-        errors.append(f"Tools: {e}")
-        print(f"[FAIL] Tools: {e}")
+        errors.append(f"Route optimization: {e}")
+        print(f"[FAIL] Route optimization: {e}")
 
     # Summary
     print()

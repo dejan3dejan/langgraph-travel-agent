@@ -159,9 +159,7 @@ async def compiler_node(state: AgentState) -> dict:
 
         for zone, places in raw_zone_groups.items():
             if places:
-                optimization = optimize_day_route.invoke(
-                    {"places": places, "hotel_lat": hotel_lat, "hotel_lon": hotel_lon}
-                )
+                optimization = optimize_day_route(places, hotel_lat, hotel_lon)
                 zone_groups[zone] = optimization.get("optimized_order", [])
             else:
                 zone_groups[zone] = []

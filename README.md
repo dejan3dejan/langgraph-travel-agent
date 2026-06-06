@@ -148,7 +148,6 @@ All configuration is via environment variables (see `.env.example`):
 | `CORS_ORIGINS` | No | `http://localhost:3000,http://localhost:5173` | Allowed frontend origins |
 | `RATE_LIMIT_MAX` | No | `30` | Max requests per IP per window |
 | `RATE_LIMIT_WINDOW` | No | `60` | Rate limit window in seconds |
-| `USE_REACT_AGENT` | No | `false` | Enable ReAct agent mode for the compiler |
 
 ## API Endpoints
 
