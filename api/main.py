@@ -39,19 +39,19 @@ RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database on startup."""
-    logger.info("🚀 Starting Travel Companion API...")
+    logger.info("Starting Travel Companion API...")
 
     try:
         init_db()
-        logger.info("✅ Database initialized")
+        logger.info("Database initialized")
     except Exception as e:
-        logger.error(f"❌ Database initialization failed: {e}")
+        logger.error(f"Database initialization failed: {e}")
         raise
 
     try:
         stats = get_cache_stats()
         if stats:
-            logger.info("📊 Semantic Cache Stats:")
+            logger.info("Semantic Cache Stats:")
             for category, data in stats.items():
                 logger.info(f"  {category}: {data['entries']} entries, {data['total_uses']} uses")
     except Exception as e:
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    logger.info("👋 Shutting down...")
+    logger.info("Shutting down...")
 
 
 app = FastAPI(
@@ -254,7 +254,7 @@ async def clear_stale_cache(max_age_days: int = 60, _key: str | None = Depends(v
 
         db.commit()
 
-        logger.info(f"🗑️  Deleted {deleted_count} stale cache entries (older than {max_age_days} days)")
+        logger.info(f"Deleted {deleted_count} stale cache entries (older than {max_age_days} days)")
 
         return {"deleted_entries": deleted_count, "cutoff_date": cutoff.isoformat(), "max_age_days": max_age_days}
     except Exception as e:
@@ -328,6 +328,6 @@ async def get_recent_logs(_key: str | None = Depends(verify_api_key)):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
 
-    logger.info(f"🚀 Starting server on http://localhost:{port}")
-    logger.info(f"📚 API docs: http://localhost:{port}/docs")
-    logger.info(f"📊 Cache stats: http://localhost:{port}/api/cache/stats")
+    logger.info(f"Starting server on http://localhost:{port}")
+    logger.info(f"API docs: http://localhost:{port}/docs")
+    logger.info(f"Cache stats: http://localhost:{port}/api/cache/stats")
