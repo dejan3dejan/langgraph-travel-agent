@@ -6,6 +6,7 @@ from core.database import SessionLocal
 from core.semantic_cache import cache_research_results, semantic_search
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_cache_functions_flow():
     # 0. Cleanup DB for this test query
