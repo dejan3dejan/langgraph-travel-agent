@@ -41,7 +41,7 @@ def _get_activity_focus(trip_type: str, age_range: str, interests: str) -> str:
     return ", ".join(focus) if focus else "general sightseeing"
 
 
-# ── Research configuration per category ──────────────────────────────────────
+# Research configuration per category
 
 _RESEARCH_CONFIG = {
     "restaurants": {

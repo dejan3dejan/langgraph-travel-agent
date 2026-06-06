@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-# ── Request/Response schemas ────────────────────────────────────────────────
+# Request/Response schemas
 
 
 class RegisterRequest(BaseModel):
@@ -82,7 +82,7 @@ class SessionSummary(BaseModel):
     message_count: int
 
 
-# ── Auth endpoints ──────────────────────────────────────────────────────────
+# Auth endpoints
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -148,7 +148,7 @@ async def get_me(user: User = Depends(require_user)):
     )
 
 
-# ── Preferences endpoints ──────────────────────────────────────────────────
+# Preferences endpoints
 
 
 @router.get("/preferences", response_model=PreferencesResponse)
@@ -203,7 +203,7 @@ async def update_preferences(
     )
 
 
-# ── Trip management ─────────────────────────────────────────────────────────
+# Trip management
 
 
 @router.get("/trips", response_model=list[TripSummary])
@@ -256,7 +256,7 @@ async def delete_trip(trip_id: str, user: User = Depends(require_user), db: Sess
     logger.info(f"Trip {trip_id} deleted by {user.username}")
 
 
-# ── Chat session management ────────────────────────────────────────────────
+# Chat session management
 
 
 @router.get("/sessions", response_model=list[SessionSummary])

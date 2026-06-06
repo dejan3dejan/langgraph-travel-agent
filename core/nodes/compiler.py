@@ -22,7 +22,7 @@ def _slim_place(d: dict) -> dict:
     return {k: v for k, v in d.items() if k not in _INTERNAL_KEYS and v is not None}
 
 
-# ── Narrative helpers ────────────────────────────────────────────────────────
+# Narrative helpers
 
 
 def _get_narrative_style(num_travelers: int, age_range: str, trip_type: str | None) -> str:
@@ -121,7 +121,7 @@ def _get_tips_guidance(age_range: str, trip_type: str | None, num_travelers: int
     return "\n".join(tips)
 
 
-# ── Compiler node ────────────────────────────────────────────────────────────
+# Compiler node
 
 
 async def compiler_node(state: AgentState) -> dict:
