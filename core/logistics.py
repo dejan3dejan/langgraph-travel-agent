@@ -206,21 +206,20 @@ async def logistics_agent(state: AgentState) -> dict[str, Any]:
 
     zone_counts = {"near": 0, "remote": 0, "unknown": 0}
 
+    # Aggregate proximity stats for debug/observability only. The compiler does its
+    # own zone grouping from coordinates (group_places_by_zone), so we don't store
+    # a per-item zone here.
     if hotel_data and hotel_data[0].lat:
         base_h = hotel_data[0]
-        base_h.zone = "BASE_HOTEL"
 
         for item in activity_data + food_data:
             if item.lat:
                 dist = haversine_distance(base_h.lat, base_h.lon, item.lat, item.lon)
                 if dist <= 2.0:
-                    item.zone = "Near Hotel (<2km)"
                     zone_counts["near"] += 1
                 else:
-                    item.zone = f"Remote ({dist:.1f}km)"
                     zone_counts["remote"] += 1
             else:
-                item.zone = "Unknown"
                 zone_counts["unknown"] += 1
 
     duration = time.time() - t0

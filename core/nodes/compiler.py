@@ -14,7 +14,7 @@ from ._utils import log_usage
 
 logger = get_logger(__name__)
 
-_INTERNAL_KEYS = {"geocoding_status", "zone", "_type"}
+_INTERNAL_KEYS = {"geocoding_status", "_type"}
 
 
 def _slim_place(d: dict) -> dict:
