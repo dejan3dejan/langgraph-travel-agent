@@ -61,7 +61,7 @@ async def chat(
     user_text = chat_message.message.strip()
 
     try:
-        response_text, updated_history, _, user_details = await orchestrator.chat(user_text, history)
+        response_text, updated_history, _, user_details, is_itinerary = await orchestrator.chat(user_text, history)
 
         db_session.data["history"] = updated_history
         if not db_session.title or db_session.title == "New Chat":
@@ -69,7 +69,7 @@ async def chat(
         flag_modified(db_session, "data")
         db.commit()
 
-        if "# Day 1" in response_text or "##" in response_text:
+        if is_itinerary:
             try:
                 new_trip = Trip(
                     session_id=session_id,
@@ -114,6 +114,7 @@ async def chat_stream(
 
     async def event_generator():
         accumulated_data = {"itinerary": "", "completed": False, "start_time": datetime.now(UTC)}
+        is_itinerary = False
 
         try:
             async for event in orchestrator.stream_chat(user_text, history):
@@ -123,6 +124,7 @@ async def chat_stream(
                     accumulated_data["itinerary"] += event["content"]
                 elif event["type"] == "end":
                     accumulated_data["completed"] = True
+                    is_itinerary = event.get("is_itinerary", False)
 
                 yield f"data: {json.dumps(event)}\n\n"
 
@@ -146,7 +148,7 @@ async def chat_stream(
                         active_session.data["history"] = new_history
                         flag_modified(active_session, "data")
 
-                        if "# Day 1" in accumulated_data["itinerary"] or "##" in accumulated_data["itinerary"]:
+                        if is_itinerary:
                             new_trip = Trip(
                                 session_id=session_id,
                                 user_id=user.id if user else None,

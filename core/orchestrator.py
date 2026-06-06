@@ -9,7 +9,7 @@ class TravelOrchestrator:
 
     async def chat(
         self, user_message: str, history: list[dict[str, str]]
-    ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any]]:
+    ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool]:
         """Standard invocation of the LangGraph workflow."""
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
@@ -31,10 +31,17 @@ class TravelOrchestrator:
                 else:
                     final_response = f"{result['draft_itinerary']}\n\n*Reviewer Note: {critique.get('feedback')}*"
 
-            return final_response, updated_history, result.get("debug_logs", []), result.get("user_details", {})
+            is_itinerary = bool(result.get("draft_itinerary"))
+            return (
+                final_response,
+                updated_history,
+                result.get("debug_logs", []),
+                result.get("user_details", {}),
+                is_itinerary,
+            )
 
         except Exception as e:
-            return f"System Error: {str(e)}", history, [], {}
+            return f"System Error: {str(e)}", history, [], {}, False
 
     async def stream_chat(self, user_message: str, history: list[dict[str, str]]):
         """Asynchronous generator that yields clean dict events from LangGraph."""
@@ -43,8 +50,13 @@ class TravelOrchestrator:
 
         inputs = {"messages": updated_history, "iteration_count": 0}
 
+        produced_itinerary = False
         async for event in self.app.astream_events(inputs, version="v2", config={"recursion_limit": 25}):
             kind = event["event"]
+
+            # The compiler node only runs when an itinerary is being produced.
+            if kind == "on_chain_start" and event.get("name") == "compiler":
+                produced_itinerary = True
 
             if kind == "on_node_start":
                 node_name = event["name"]
@@ -74,4 +86,4 @@ class TravelOrchestrator:
                 elif event["name"] == "status_update":
                     yield {"type": "status", "content": event["data"].get("message")}
 
-        yield {"type": "end"}
+        yield {"type": "end", "is_itinerary": produced_itinerary}
