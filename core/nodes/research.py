@@ -5,7 +5,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from ..llm import get_llm_for_role
+from ..llm import USE_GEMINI, get_llm_for_role
 from ..logger import get_logger
 from ..schemas import Activity, ActivityList, Hotel, HotelList, Restaurant, RestaurantList
 from ..semantic_cache import cache_research_results, semantic_search, should_use_cache
@@ -196,7 +196,10 @@ async def _research_for_dest(category: str, dest: str, details: dict) -> list:
 
     logger.info(f"[{dest}] Cache miss for {category} — searching via Gemini...")
 
-    research_llm = get_llm_for_role("research").bind_tools(tools=[{"google_search": {}}])
+    research_llm = get_llm_for_role("research")
+    # Google Search grounding is Gemini-only; OpenAI-only mode runs ungrounded.
+    if USE_GEMINI:
+        research_llm = research_llm.bind_tools(tools=[{"google_search": {}}])
     search_prompt = _build_search_prompt(category, dest, details)
 
     grounded_response = await research_llm.ainvoke([HumanMessage(content=search_prompt)])
