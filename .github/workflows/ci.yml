@@ -47,3 +47,11 @@ jobs:
           OPENAI_API_KEY: fake-ci-key
           GEMINI_API_KEY: fake-ci-key
         run: python test_smoke.py
+
+      # 6. Unit tests. The default pytest run excludes integration tests
+      #    (-m 'not integration' via pyproject), so this stays hermetic.
+      - name: Run unit tests
+        env:
+          OPENAI_API_KEY: fake-ci-key
+          GEMINI_API_KEY: fake-ci-key
+        run: pytest
