@@ -51,6 +51,8 @@ class TravelOrchestrator:
         inputs = {"messages": updated_history, "iteration_count": 0}
 
         produced_itinerary = False
+        marker = "PLANNING_STARTED"  # interviewer trigger token; must never reach the user
+        pending = ""
         status_map = {
             "interviewer": "Atlas is thinking...",
             "research_food": "🔍 Searching for the best restaurants...",
@@ -73,13 +75,31 @@ class TravelOrchestrator:
             elif kind == "on_chat_model_stream":
                 if "final_itinerary" in event.get("tags", []):
                     content = event["data"]["chunk"].content
-                    if content:
-                        yield {"type": "token", "content": content}
+                    if not content:
+                        continue
+                    # Strip the PLANNING_STARTED trigger from the stream without
+                    # breaking the typing effect: drop complete markers, and hold
+                    # back only a tail that could be the marker's start.
+                    pending += content
+                    pending = pending.replace(marker, "")
+                    hold = 0
+                    for k in range(min(len(marker) - 1, len(pending)), 0, -1):
+                        if pending.endswith(marker[:k]):
+                            hold = k
+                            break
+                    emit = pending[: len(pending) - hold]
+                    pending = pending[len(pending) - hold :]
+                    if emit:
+                        yield {"type": "token", "content": emit}
 
             elif kind == "on_custom_event":
                 if event["name"] == "reset_itinerary":
                     yield {"type": "reset", "content": event["data"].get("message")}
                 elif event["name"] == "status_update":
                     yield {"type": "status", "content": event["data"].get("message")}
+
+        leftover = pending.replace(marker, "")
+        if leftover:
+            yield {"type": "token", "content": leftover}
 
         yield {"type": "end", "is_itinerary": produced_itinerary}
