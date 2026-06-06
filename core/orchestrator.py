@@ -51,25 +51,21 @@ class TravelOrchestrator:
         inputs = {"messages": updated_history, "iteration_count": 0}
 
         produced_itinerary = False
+        status_map = {
+            "interviewer": "Atlas is thinking...",
+            "research_food": "🔍 Searching for the best restaurants...",
+            "research_activity": "🏛 Researching activities...",
+            "research_hotel": "🏨 Finding accommodations...",
+            "compiler": "✍️ Compiling your itinerary...",
+        }
         async for event in self.app.astream_events(inputs, version="v2", config={"recursion_limit": 25}):
             kind = event["event"]
 
-            # The compiler node only runs when an itinerary is being produced.
-            if kind == "on_chain_start" and event.get("name") == "compiler":
-                produced_itinerary = True
-
-            if kind == "on_node_start":
-                node_name = event["name"]
+            # LangGraph surfaces node boundaries as on_chain_start with the node name.
+            if kind == "on_chain_start":
+                node_name = event.get("name")
                 if node_name == "compiler":
-                    yield {"type": "reset", "content": "Refining the itinerary based on feedback..."}
-
-                status_map = {
-                    "interviewer": "Atlas is thinking...",
-                    "research_food": "🔍 Searching for the best restaurants...",
-                    "research_activity": "🏛 Researching activities...",
-                    "research_hotel": "🏨 Finding accommodations...",
-                    "compiler": "✍️ Compiling your itinerary...",
-                }
+                    produced_itinerary = True
                 msg = status_map.get(node_name)
                 if msg:
                     yield {"type": "status", "content": msg, "node": node_name}
