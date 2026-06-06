@@ -4,12 +4,12 @@ import json
 import time
 
 from langchain_core.callbacks import adispatch_custom_event
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..llm import USE_REACT_AGENT, get_llm_for_role, get_llm_with_tools
+from ..llm import get_llm_for_role
 from ..logger import get_logger
 from ..state import AgentState
-from ..tools import TRAVEL_TOOLS, group_places_by_zone, optimize_day_route
+from ..tools import group_places_by_zone, optimize_day_route
 from ._utils import log_usage
 
 logger = get_logger(__name__)
@@ -290,18 +290,15 @@ OUTPUT FORMAT (Markdown)
 Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code blocks. No preamble.
 """
 
-    if USE_REACT_AGENT:
-        draft, log = await _run_compiler_agent(user_details, hotel_dicts, grouped_data, t0)
-    else:
-        response = await chat_llm.ainvoke(
-            [
-                SystemMessage(content="You are a Travel Editor specializing in efficient, logical itineraries."),
-                HumanMessage(content=prompt),
-            ],
-            config={"tags": ["final_itinerary"]},
-        )
-        draft = response.content
-        log = log_usage("compiler", t0, response)
+    response = await chat_llm.ainvoke(
+        [
+            SystemMessage(content="You are a Travel Editor specializing in efficient, logical itineraries."),
+            HumanMessage(content=prompt),
+        ],
+        config={"tags": ["final_itinerary"]},
+    )
+    draft = response.content
+    log = log_usage("compiler", t0, response)
 
     return {
         "draft_itinerary": draft,
@@ -309,88 +306,3 @@ Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code bl
         "next_node": "critic",
         "debug_logs": [log],
     }
-
-
-async def _run_compiler_agent(user_details: dict, hotel_dicts: list, grouped_data: dict, t0: float) -> tuple:
-    """ReAct agent compiler — uses tools to optimize routes before writing."""
-    logger.info("Running ReAct Agent Compiler with tools...")
-
-    llm_with_tools = get_llm_with_tools(TRAVEL_TOOLS)
-
-    hotel_json = json.dumps(hotel_dicts[:1], indent=2, ensure_ascii=False) if hotel_dicts else "{}"
-    grouped_json = json.dumps(grouped_data, indent=2, ensure_ascii=False)
-
-    agent_prompt = f"""
-You are Atlas, a Travel Planner Agent with access to tools for route optimization.
-
-TASK: Create a {user_details.get('duration')} itinerary for {user_details.get('destination')}.
-
-TRAVELER INFO:
-- Start: {user_details.get('start_location', 'their location')}
-- Budget: {user_details.get('budget')}
-- Interests: {user_details.get('interests')}
-
-HOTEL (Base Location):
-{hotel_json}
-
-PLACES GROUPED BY ZONE:
-{grouped_json}
-
-AVAILABLE TOOLS:
-1. optimize_day_route - Optimize order of places for a day (minimizes travel)
-2. calculate_distance - Check distance between two points
-3. check_zone - Verify which zone a place is in
-
-YOUR WORKFLOW:
-1. FIRST: Use optimize_day_route for each day's activities to find the best order
-2. THEN: Write the final itinerary using the optimized order
-
-OUTPUT FORMAT (After using tools):
-Write a complete Markdown itinerary with:
-- Overview
-- Recommended Accommodation
-- Day-by-Day Itinerary (using optimized routes)
-- Getting There & Transport
-- Tips & Budget Notes
-
-Start by analyzing the zones and calling optimize_day_route if needed.
-"""
-
-    messages = [
-        SystemMessage(
-            content="You are a Travel Planner Agent. Use tools to optimize routes, then write the itinerary."
-        ),
-        HumanMessage(content=agent_prompt),
-    ]
-
-    max_iterations = 3
-    response = None
-    for _ in range(max_iterations):
-        response = await llm_with_tools.ainvoke(messages, config={"tags": ["final_itinerary"]})
-        messages.append(response)
-
-        if hasattr(response, "tool_calls") and response.tool_calls:
-            for tool_call in response.tool_calls:
-                tool_name = tool_call.get("name")
-                tool_args = tool_call.get("args", {})
-
-                tool_result = None
-                for tool in TRAVEL_TOOLS:
-                    if tool.name == tool_name:
-                        try:
-                            tool_result = tool.invoke(tool_args)
-                        except Exception as e:
-                            tool_result = f"Error: {e}"
-                        break
-
-                if tool_result is None:
-                    tool_result = f"Unknown tool: {tool_name}"
-
-                messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call.get("id", "")))
-        else:
-            break
-
-    draft = response.content if response and hasattr(response, "content") else ""
-    log = log_usage("compiler_agent", t0, response)
-
-    return draft, log
