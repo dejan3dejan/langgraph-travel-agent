@@ -77,7 +77,9 @@ async def semantic_search(
             if created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
 
-            age_days = (datetime.now(UTC) - created).days
+            # A row written a sub-second ago can read back microseconds in the
+            # "future" (clock skew), making .days floor to -1; age is never negative.
+            age_days = max(0, (datetime.now(UTC) - created).days)
 
             logger.info(
                 f"CACHE HIT! Similarity: {similarity:.2%}, "
