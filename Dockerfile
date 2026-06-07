@@ -11,7 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p logs
+# Run as a non-root user: create it, ensure a writable logs dir, own the app tree.
+RUN useradd --create-home --uid 1000 appuser \
+    && mkdir -p logs \
+    && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 
