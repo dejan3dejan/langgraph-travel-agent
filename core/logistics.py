@@ -61,57 +61,6 @@ def _lookup_geocode_cache(query: str, stats: dict[str, int]) -> tuple[float | No
     return None
 
 
-def get_coordinates(
-    address: str,
-    neighborhood: str | None = None,
-    city: str | None = None,
-    retries: int = 1,
-    stats: dict[str, int] | None = None,
-) -> tuple[float | None, float | None, str]:
-    """Sync geocode with DB cache fallback. Used by LangChain tools (sync-only)."""
-    if stats is None:
-        stats = _new_stats()
-
-    if not address:
-        stats["failed"] += 1
-        return None, None, "failed"
-
-    query = address.strip()
-
-    cached = _lookup_geocode_cache(query, stats)
-    if cached is not None:
-        return cached
-
-    res = (None, None, "failed")
-    for i in range(retries + 1):
-        try:
-            time.sleep(1.1)
-            stats["api_calls"] += 1
-            location = _geocode_sync(address)
-            if location:
-                res = (location.latitude, location.longitude, "exact")
-                break
-            if neighborhood:
-                time.sleep(1.1)
-                stats["api_calls"] += 1
-                search_query = f"{neighborhood}, {city}" if city else neighborhood
-                location = _geocode_sync(search_query)
-                if location:
-                    res = (location.latitude, location.longitude, "neighborhood")
-                    break
-            break
-        except Exception:
-            if i == retries:
-                break
-            continue
-
-    _save_to_geocoding_cache(query, res)
-
-    stats[res[2]] += 1
-
-    return res
-
-
 async def aget_coordinates(
     address: str,
     neighborhood: str | None = None,
