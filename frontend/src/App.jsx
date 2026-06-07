@@ -26,7 +26,7 @@ export default function App() {
       ) : (
         <div className="chat-area">
           {messages.map((m, i) => (
-            <Message key={i} role={m.role} content={m.content} />
+            <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} />
           ))}
           <StatusBar statuses={statuses} />
           <div ref={chatEndRef} />

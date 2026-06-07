@@ -16,6 +16,7 @@ export function useChat() {
     setIsStreaming(true)
 
     let aiContent = ''
+    let isItinerary = false
     let currentStatuses = []
     let lastActiveNode = null
 
@@ -87,6 +88,7 @@ export function useChat() {
             }
 
             case 'end': {
+              isItinerary = event.is_itinerary || false
               currentStatuses = currentStatuses.map(s => ({ ...s, state: 'done' }))
               setStatuses([...currentStatuses])
               break
@@ -107,7 +109,7 @@ export function useChat() {
       if (aiContent) {
         setMessages(prev => {
           const filtered = prev.filter(m => m.role !== 'ai-stream')
-          return [...filtered, { role: 'ai', content: aiContent }]
+          return [...filtered, { role: 'ai', content: aiContent, isItinerary }]
         })
       }
 

@@ -7,14 +7,16 @@ const variants = {
   visible: { opacity: 1, y: 0 },
 }
 
-function isItinerary(text) {
-  return text.includes('## Day') || text.includes('# ') && text.includes('Trip to')
+function looksLikeItinerary(text) {
+  return text.includes('## Day') || (text.includes('# ') && text.includes('Trip to'))
 }
 
-export default function Message({ role, content }) {
+export default function Message({ role, content, isItinerary }) {
   const isUser = role === 'user'
   const isStream = role === 'ai-stream'
-  const showMarkdown = !isUser && (isItinerary(content) || content.includes('##'))
+  // Finalized AI messages carry an explicit is_itinerary flag from the backend.
+  // While streaming we don't have it yet, so fall back to a content heuristic.
+  const showMarkdown = !isUser && (isItinerary || (isStream && looksLikeItinerary(content)))
 
   return (
     <motion.div
