@@ -9,6 +9,7 @@ extend-exclude = '''
   | \.git
   | \.venv
   | venv
+  | migrations
   | build
   | dist
 )/
@@ -19,6 +20,7 @@ line_length = 120
 skip_gitignore = true
 known_first_party = ["core", "tests"]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+extend_skip = ["migrations"]
 
 [tool.ruff]
 line-length = 120
@@ -32,6 +34,7 @@ exclude = [
     "__pycache__",
     "build",
     "dist",
+    "migrations",
 ]
 
 [tool.ruff.lint]

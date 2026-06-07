@@ -3,6 +3,7 @@
 import os
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 from pgvector.sqlalchemy import Vector
@@ -120,31 +121,27 @@ class SemanticCache(Base):
     freshness_days = Column(Float)
 
 
-def enable_pgvector():
-    """Enable PGVector extension in PostgreSQL."""
-    from sqlalchemy import text
+def _run_migrations():
+    """Bring the schema to the latest Alembic revision.
 
-    logger.info("Enabling PGVector extension...")
+    The baseline migration creates the pgvector extension and all tables, so this
+    replaces the old create_all() + manual CREATE EXTENSION. Idempotent — a no-op
+    when already at head, which makes it safe to run on every startup.
+    """
+    from alembic import command
+    from alembic.config import Config
 
-    with engine.connect() as conn:
-        try:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            conn.commit()
-            logger.info("PGVector extension enabled")
-        except Exception as e:
-            logger.error(f"Failed to enable PGVector: {e}")
-            raise
+    logger.info("Running database migrations...")
+    alembic_ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+    command.upgrade(Config(str(alembic_ini)), "head")
+    logger.info("Migrations applied (schema at head)")
 
 
 def init_db():
-    """Create all tables and enable PGVector."""
+    """Migrate the database to head, then ensure vector indexes exist."""
     logger.info("Initializing database...")
 
-    enable_pgvector()
-
-    logger.info("Creating database tables...")
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created successfully")
+    _run_migrations()
 
     from sqlalchemy import inspect
 
