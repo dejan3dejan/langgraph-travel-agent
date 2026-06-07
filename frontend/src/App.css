@@ -393,9 +393,7 @@
   .send-btn { width: 48px; height: 48px; }
 }
 
-/* =========================================================
-   ERROR BOUNDARY  — recoverable crash panel
-   ========================================================= */
+/* error boundary — recoverable crash panel */
 
 .error-boundary {
   flex: 1;

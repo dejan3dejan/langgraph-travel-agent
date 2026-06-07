@@ -1,7 +1,7 @@
 import { Component } from 'react'
 
-// Error boundaries have no hook equivalent — catching render-time crashes requires a
-// class component. This wraps the whole app so a thrown render error shows a recoverable
+// Error boundaries have no hook equivalent, so catching render-time crashes needs a
+// class component. It wraps the whole app so a thrown render error shows a recoverable
 // panel instead of a blank screen.
 export default class ErrorBoundary extends Component {
   state = { hasError: false }
