@@ -392,3 +392,83 @@
   .prompt-chips { flex-direction: column; align-items: stretch; }
   .send-btn { width: 48px; height: 48px; }
 }
+
+/* =========================================================
+   ERROR BOUNDARY  — recoverable crash panel
+   ========================================================= */
+
+.error-boundary {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  min-height: 60dvh;
+}
+
+.error-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 420px;
+  padding: 36px 32px;
+  text-align: center;
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-floating);
+}
+
+/* warning glyph in a raised circular housing, matching the avatars/compass */
+.error-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  font-size: 1.8rem;
+  border-radius: var(--r-full);
+  background: var(--bg);
+  box-shadow: var(--shadow-card);
+}
+
+.error-card__title {
+  font-family: var(--font-body);
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-shadow: 0 1px 0 var(--shadow-light);
+}
+
+.error-card__msg {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+/* pressable physical key, same treatment as the prompt chips */
+.error-card__btn {
+  margin-top: 6px;
+  padding: 12px 28px;
+  border-radius: var(--r-md);
+  border: none;
+  background: var(--bg);
+  color: var(--accent);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s var(--ease-spring), box-shadow 0.2s;
+}
+
+.error-card__btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-floating);
+}
+
+.error-card__btn:active {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-pressed);
+}
