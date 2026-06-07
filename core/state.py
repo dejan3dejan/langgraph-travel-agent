@@ -20,9 +20,8 @@ class AgentState(TypedDict):
     critique: dict[str, Any] | None
     season_suggestion: str | None
 
-    # Loop guards: prevent infinite compiler/critic or interviewer cycles
+    # Loop guard: caps compiler/critic revision cycles
     iteration_count: int
-    interview_count: int
     next_node: str
 
     debug_logs: Annotated[list[dict[str, Any]], operator.add]
