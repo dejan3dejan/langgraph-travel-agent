@@ -66,7 +66,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-addopts = "-p no:warnings -m 'not integration' --ignore=tests/test_semantic_cache.py"
+addopts = "-p no:warnings -m 'not integration'"
 asyncio_mode = "auto"
 markers = [
     "integration: requires live API keys or a database (run with -m integration)",
