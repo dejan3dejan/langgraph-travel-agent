@@ -16,3 +16,5 @@ tests/
 *.md
 Dockerfile
 docker-compose.yml
+node_modules/
+frontend/
