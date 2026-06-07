@@ -1,7 +1,7 @@
 """Unit tests for the pure geo helpers — no I/O, no API, fully deterministic."""
 
+from core.geo import group_places_by_zone, optimize_day_route
 from core.logistics import haversine_distance
-from core.tools import group_places_by_zone, optimize_day_route
 
 PARIS = (48.8566, 2.3522)
 

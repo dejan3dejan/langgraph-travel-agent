@@ -8,10 +8,10 @@ def main():
 
     # 1. Core imports
     try:
+        from core.geo import group_places_by_zone, optimize_day_route
         from core.llm import get_llm_for_role
         from core.logistics import haversine_distance
         from core.schemas import ItineraryCritique, Restaurant, UserPreferences
-        from core.tools import group_places_by_zone, optimize_day_route
 
         print("[OK] All core imports")
     except Exception as e:
