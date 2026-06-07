@@ -130,6 +130,7 @@ async def main():
             print_user_message(user_text)
 
             full_response = ""
+            is_itinerary = False
             current_status = "Atlas is thinking..."
 
             with console.status(f"[dim cyan]🤔 {current_status}[/dim cyan]", spinner="dots") as status:
@@ -167,12 +168,15 @@ async def main():
                         console.print(token, end="")
                         sys.stdout.flush()
 
+                    elif event["type"] == "end":
+                        is_itinerary = event.get("is_itinerary", False)
+
                 if full_response:
                     console.print()
                     console.print("[cyan]│[/cyan]")
                     console.print("[bold cyan]└────────────────────────────────────────[/bold cyan]")
 
-                if "# Day 1" in full_response or "## Day" in full_response:
+                if is_itinerary:
                     console.print()
                     console.print(
                         Panel(
