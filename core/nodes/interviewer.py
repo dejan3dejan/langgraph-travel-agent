@@ -185,23 +185,21 @@ async def interviewer_node(state: AgentState) -> dict:
             season_suggestion = _compute_season_suggestion(user_details)
 
         except Exception as e:
-            logger.error(f"Extraction failed: {e}")
-            user_details = {
-                "destination": "Paris",
-                "start_location": "the user's current location",
-                "budget": "Medium",
-                "duration": "3 days",
-                "interests": "General Sightseeing",
-                "focus": [],
-                "num_travelers": 1,
-                "age_range": "adults",
-                "trip_type": None,
-                "travel_dates": None,
-                "season_preference": "flexible",
-                "destinations": [],
-                "constraints": None,
+            # Fail loud: don't fabricate a destination and silently plan the wrong
+            # trip. Tell the user and stay in the interview so they can retry.
+            logger.error(f"Extraction failed, asking the user to rephrase: {e}")
+            return {
+                "messages": [
+                    {
+                        "role": "model",
+                        "content": "Sorry — I had trouble pinning down your trip details. "
+                        "Could you tell me again where you'd like to go and for how long?",
+                    }
+                ],
+                "interview_count": interview_count,
+                "next_node": "interviewer",
+                "debug_logs": [log],
             }
-            season_suggestion = None
 
         old_details = state.get("user_details", {})
         old_dest = old_details.get("destination")
