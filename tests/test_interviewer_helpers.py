@@ -1,6 +1,13 @@
 """Unit tests for interviewer helper functions — pure, no API."""
 
-from core.nodes.interviewer import _compute_season_suggestion, _finalize_details, _is_ready, _missing_field
+from core.nodes.interviewer import (
+    _compute_season_suggestion,
+    _finalize_details,
+    _is_ready,
+    _latest_itinerary,
+    _missing_field,
+    _plan_in_history,
+)
 
 
 def test_no_suggestion_when_dates_given():
@@ -75,3 +82,35 @@ def test_finalize_prepends_primary_to_destinations():
 def test_finalize_single_destination_leaves_list_empty():
     out = _finalize_details({"destination": "Rome", "duration": "3 days", "destinations": []})
     assert out["destinations"] == []
+
+
+# ── post-plan detection ──────────────────────────────────────────────────────
+
+
+def test_plan_in_history_detects_itinerary():
+    msgs = [
+        {"role": "user", "content": "plan rome"},
+        {"role": "model", "content": "# 3 days Trip to Rome\n## Day 1: Colosseum"},
+    ]
+    assert _plan_in_history(msgs) is True
+
+
+def test_plan_in_history_false_for_plain_chat():
+    msgs = [
+        {"role": "user", "content": "rome"},
+        {"role": "model", "content": "How many days are you planning?"},
+    ]
+    assert _plan_in_history(msgs) is False
+
+
+def test_latest_itinerary_returns_most_recent():
+    msgs = [
+        {"role": "model", "content": "# Trip to Rome\n## Day 1"},
+        {"role": "user", "content": "now tokyo"},
+        {"role": "model", "content": "# Trip to Tokyo\n## Day 1"},
+    ]
+    assert "Tokyo" in _latest_itinerary(msgs)
+
+
+def test_latest_itinerary_empty_when_none():
+    assert _latest_itinerary([{"role": "user", "content": "hi"}]) == ""
