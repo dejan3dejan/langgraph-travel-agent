@@ -1,6 +1,6 @@
 """Unit tests for interviewer helper functions — pure, no API."""
 
-from core.nodes.interviewer import _compute_season_suggestion
+from core.nodes.interviewer import _compute_season_suggestion, _finalize_details, _is_ready, _missing_field
 
 
 def test_no_suggestion_when_dates_given():
@@ -21,3 +21,57 @@ def test_medium_budget_suggests_shoulder():
 
 def test_missing_budget_defaults_to_shoulder():
     assert "Shoulder" in _compute_season_suggestion({})
+
+
+# ── readiness decision (the anti-loop gate) ──────────────────────────────────
+
+
+def test_ready_with_destination_and_duration():
+    assert _is_ready({"destination": "Rome", "duration": "5 days"}, user_turns=1) is True
+
+
+def test_not_ready_without_duration_early():
+    assert _is_ready({"destination": "Rome", "duration": ""}, user_turns=1) is False
+
+
+def test_backstop_plans_with_destination_after_max_turns():
+    # No duration, but enough turns + a destination -> plan anyway.
+    assert _is_ready({"destination": "Rome", "duration": ""}, user_turns=3) is True
+
+
+def test_never_ready_without_destination():
+    # Even past the backstop, no destination means we can't plan.
+    assert _is_ready({"destination": "", "duration": "5 days"}, user_turns=9) is False
+
+
+def test_blank_strings_count_as_missing():
+    assert _is_ready({"destination": "   ", "duration": "   "}, user_turns=1) is False
+
+
+def test_missing_field_prioritizes_destination():
+    assert "where" in _missing_field({"destination": "", "duration": ""})
+    assert "days" in _missing_field({"destination": "Rome", "duration": ""})
+
+
+# ── finalize details ─────────────────────────────────────────────────────────
+
+
+def test_finalize_defaults_blank_duration():
+    out = _finalize_details({"destination": "Rome", "duration": ""})
+    assert out["duration"] == "3 days"
+
+
+def test_finalize_defaults_interests_and_start_location():
+    out = _finalize_details({"destination": "Rome", "duration": "5 days", "interests": "", "start_location": ""})
+    assert out["interests"] == "General Sightseeing"
+    assert out["start_location"] == "the user's current location"
+
+
+def test_finalize_prepends_primary_to_destinations():
+    out = _finalize_details({"destination": "Paris", "duration": "3 days", "destinations": ["Rome"]})
+    assert out["destinations"] == ["Paris", "Rome"]
+
+
+def test_finalize_single_destination_leaves_list_empty():
+    out = _finalize_details({"destination": "Rome", "duration": "3 days", "destinations": []})
+    assert out["destinations"] == []

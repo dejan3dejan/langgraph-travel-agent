@@ -1,4 +1,11 @@
-"""Interviewer node — gathers a rich traveler profile via natural conversation."""
+"""Interviewer node — gathers the traveler profile via slot-filling.
+
+Each turn it extracts the known fields from the whole conversation, then DECIDES IN
+CODE whether enough is known to plan (destination + duration) or what to ask next.
+That deterministic gate is what prevents looping / re-asking — it does not rely on
+the LLM to remember what has already been answered. A turn-count backstop derived
+from the message history (which persists via replay) guarantees the interview ends.
+"""
 
 import time
 
@@ -12,110 +19,46 @@ from ._utils import log_usage
 
 logger = get_logger(__name__)
 
-MAX_INTERVIEW_TURNS = 5
-
-_SYSTEM_PROMPT = """
-You are 'Atlas', a charming and knowledgeable Travel Consultant.
-
-YOUR GOAL: Build a complete traveler profile before starting research.
-You need to collect enough information to plan the PERFECT trip — not a generic one.
-
-═══════════════════════════════════════════════════════════════
-REQUIRED INFO (must have before planning)
-═══════════════════════════════════════════════════════════════
-1. DESTINATION — city, region, or country
-2. DURATION — number of days, or specific dates
-3. BUDGET — Low / Medium / High, or a dollar amount
-
-═══════════════════════════════════════════════════════════════
-ENRICHMENT INFO (ask naturally if not volunteered)
-═══════════════════════════════════════════════════════════════
-4. WHO'S GOING — solo, couple, family, group? How many people?
-5. TRIP VIBE — romantic, adventure, cultural, relaxation, business, backpacking?
-6. TIMING — specific dates, or flexible? Any season preference?
-7. INTERESTS — food, history, nightlife, nature, art, shopping, sports?
-8. AGE RANGE — kids, young adults, adults, seniors, mixed?
-9. CONSTRAINTS — mobility issues, dietary needs, pet-friendly, no car?
-
-═══════════════════════════════════════════════════════════════
-CONVERSATION STRATEGY
-═══════════════════════════════════════════════════════════════
-
-TURN 1 (first user message):
-- Read everything they said carefully — they often pack in multiple details
-- If they gave destination + duration + budget + vibe → OUTPUT "PLANNING_STARTED"
-- If they gave destination + duration but nothing else → ask ONE natural question
-  combining 2 topics: "Nice! Who's joining you, and what's the vibe —
-  romantic getaway, adventure, family fun?"
-- If missing destination or duration → ask for what's missing, keep it warm
-
-TURN 2-3 (follow-up):
-- Fill in gaps from what they said — DON'T re-ask things they already answered
-- Combine questions naturally: "Got it! Any timing preference — specific dates,
-  or more of a 'whenever is cheapest' situation? And roughly what budget
-  are you working with?"
-- If you now have the 3 required + at least trip vibe OR who's going → "PLANNING_STARTED"
-
-TURN 4+ (wrap up):
-- You have enough. Use smart defaults for anything missing and OUTPUT "PLANNING_STARTED"
-
-═══════════════════════════════════════════════════════════════
-READING BETWEEN THE LINES
-═══════════════════════════════════════════════════════════════
-Extract implicit info — don't ask for what they already told you:
-- "me and my wife" → num_travelers=2, trip_type=romantic, age_range=adults
-- "family of 4 with kids" → num_travelers=4, age_range=mixed, trip_type=family
-- "bachelor party" → trip_type=adventure, age_range=young_adults
-- "honeymoon" → trip_type=romantic, num_travelers=2
-- "backpacking through Europe" → trip_type=adventure, budget=Low
-- "business trip" → trip_type=business, age_range=adults
-- "retirement trip" → age_range=seniors, trip_type=relaxation
-- "we want to explore food and nightlife" → interests=food,nightlife
-- "whenever is cheapest" → season_preference=off_season
-- "spring break" → season_preference=peak, age_range=young_adults
-
-═══════════════════════════════════════════════════════════════
-SMART DEFAULTS (use when info is missing after enough turns)
-═══════════════════════════════════════════════════════════════
-- No budget mentioned → "Medium"
-- No interests → "General Sightseeing"
-- No num_travelers → 1 (unless "we"/"us" → 2)
-- No age_range → "adults"
-- No trip_type → None (compiler will be generic)
-- No dates → season_preference = "flexible"
-- No start_location → "the user's current location"
-
-═══════════════════════════════════════════════════════════════
-CRITICAL RULES
-═══════════════════════════════════════════════════════════════
-1. When you have enough info → output ONLY the word "PLANNING_STARTED". No preamble.
-2. NEVER say "I cannot do this." You are an expert planner.
-3. Accept regions (e.g. "Texas", "Balkans", "Southeast Asia") — don't force a specific city.
-4. Keep questions SHORT (1-2 sentences max). Be conversational, not robotic.
-5. NEVER repeat back their info as a summary before starting — just say "PLANNING_STARTED".
-6. Ask at MOST 2-3 questions total before starting. Users want plans, not interviews.
-"""
+# After this many user turns, plan with whatever we have (provided we at least have a
+# destination) so the conversation can't drag on forever.
+MAX_INTERVIEW_TURNS = 3
 
 _EXTRACTION_PROMPT = """
-Analyze the conversation and extract ALL user preferences into structured format.
+Extract the user's travel preferences from the conversation into structured form.
 
-EXTRACTION RULES:
-1. Scan the ENTIRE conversation — info from early messages still counts.
-2. Extract num_travelers from plural language ("we"=2, "family"=4, solo=1).
-3. Extract age_range: "kids"→mixed, "honeymoon"→adults, "college"→young_adults, "parents"→seniors.
-4. Extract trip_type: "romantic", "adventure", "family", "business", "cultural", "relaxation", "backpacking".
-5. If user mentions specific dates, put them in travel_dates.
-6. If user mentions timing preferences ("cheap", "off-season", "summer"), set season_preference.
-7. MULTI-DESTINATION: If user mentions multiple cities (e.g. "Paris and Rome"), set `destinations`
-   to the ordered list AND set `destination` to the first one.
-8. Apply smart defaults for anything truly missing:
-   - No budget → "Medium"
-   - No interests → "General Sightseeing"
-   - No start_location → "the user's current location"
-   - No num_travelers → 1
-   - No age_range → "adults"
+CRITICAL:
+- Leave `destination` and `duration` as EMPTY STRINGS if the user has not stated them.
+  Do NOT guess, invent, or default them — empty means "not provided yet".
+- Scan the ENTIRE conversation; details from earlier messages still count.
+
+READING BETWEEN THE LINES (infer, don't re-ask):
+- "me and my wife" / "honeymoon" -> num_travelers=2, trip_type=romantic, age_range=adults
+- "family of 4 with kids" -> num_travelers=4, age_range=mixed, trip_type=family
+- "bachelor party" / "spring break" -> trip_type=adventure, age_range=young_adults
+- "backpacking" -> trip_type=adventure, budget=Low
+- "business trip" -> trip_type=business, age_range=adults
+- "retirement trip" -> age_range=seniors, trip_type=relaxation
+- "food and nightlife" -> interests=food, nightlife
+- "whenever is cheapest" -> season_preference=off_season
+
+MULTI-DESTINATION: if the user names multiple places (e.g. "Barcelona 4 days, Lisbon 7"),
+set `destinations` to the ordered list, `destination` to the first, and put the combined
+description in `duration` (e.g. "4 days in Barcelona, 7 in Lisbon").
+
+For enrichment fields not mentioned, the schema defaults are fine (budget=Medium,
+interests=General Sightseeing, num_travelers=1, age_range=adults).
 
 CONVERSATION:
+"""
+
+_FOLLOWUP_PROMPT = """
+You are 'Atlas', a warm, concise travel consultant gathering trip details.
+
+You still need to know: {missing}.
+
+Ask ONE short, friendly question (1-2 sentences) to get it. You may also invite the
+traveler to mention the vibe (romantic, adventure, family, etc.) or who's coming.
+Do NOT re-ask anything they have already told you, and do not summarize back to them.
 """
 
 
@@ -134,106 +77,121 @@ def _compute_season_suggestion(user_details: dict) -> str | None:
     )
 
 
+def _to_lc_messages(messages: list[dict]) -> list:
+    """Convert stored {role, content} history into LangChain message objects."""
+    out = []
+    for m in messages:
+        if m["role"] == "user":
+            out.append(HumanMessage(content=m["content"]))
+        else:
+            out.append(AIMessage(content=m["content"]))
+    return out
+
+
+async def _ask_for(missing: str, messages: list[dict], t0: float) -> dict:
+    """Stream a warm question for the missing required field; stay in the interview."""
+    chat_llm = get_llm_for_role("interviewer")
+    lc_messages = [SystemMessage(content=_FOLLOWUP_PROMPT.format(missing=missing))] + _to_lc_messages(messages)
+    response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
+    return {
+        "messages": [{"role": "model", "content": response.content}],
+        "next_node": "interviewer",
+        "debug_logs": [log_usage("interviewer", t0, response)],
+    }
+
+
+def _is_ready(user_details: dict, user_turns: int) -> bool:
+    """Decide if there's enough to start planning. Required: a destination plus a
+    duration — or, once a destination is known, after the turn-count backstop."""
+    has_destination = bool((user_details.get("destination") or "").strip())
+    has_duration = bool((user_details.get("duration") or "").strip())
+    return has_destination and (has_duration or user_turns >= MAX_INTERVIEW_TURNS)
+
+
+def _missing_field(user_details: dict) -> str:
+    """The required field to ask for next (destination takes priority over duration)."""
+    has_destination = bool((user_details.get("destination") or "").strip())
+    return "where you'd like to go" if not has_destination else "how many days you're planning"
+
+
+def _finalize_details(user_details: dict) -> dict:
+    """Apply safe defaults and normalize the multi-destination list before planning."""
+    if not (user_details.get("duration") or "").strip():
+        user_details["duration"] = "3 days"
+    if not user_details.get("interests") or user_details["interests"].lower() == "unknown":
+        user_details["interests"] = "General Sightseeing"
+    if not user_details.get("start_location"):
+        user_details["start_location"] = "the user's current location"
+
+    dests = user_details.get("destinations") or []
+    primary = user_details.get("destination", "")
+    if dests and primary and primary not in dests:
+        dests.insert(0, primary)
+    elif not dests and primary:
+        dests = []
+    user_details["destinations"] = dests
+    return user_details
+
+
 async def interviewer_node(state: AgentState) -> dict:
     t0 = time.time()
     messages = state.get("messages", [])
-    interview_count = state.get("interview_count", 0) + 1
+    user_turns = sum(1 for m in messages if m.get("role") == "user")
 
-    lc_messages = [SystemMessage(content=_SYSTEM_PROMPT)]
-    for m in messages:
-        if m["role"] == "user":
-            lc_messages.append(HumanMessage(content=m["content"]))
-        else:
-            lc_messages.append(AIMessage(content=m["content"]))
-
-    chat_llm = get_llm_for_role("interviewer")
-    extraction_llm = get_llm_for_role("extraction")
-
-    force_extraction = interview_count >= MAX_INTERVIEW_TURNS
-
-    if force_extraction:
-        logger.warning(f"Interviewer hit max turns ({MAX_INTERVIEW_TURNS}). Forcing extraction with smart defaults...")
-        content = "PLANNING_STARTED"
-    else:
-        response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
-        content = response.content
-
-    log = log_usage("interviewer", t0, response if not force_extraction else None)
-
-    if "PLANNING_STARTED" in content.upper() or force_extraction:
-        structured_llm = extraction_llm.with_structured_output(UserPreferences)
-        extraction_msg = [SystemMessage(content=_EXTRACTION_PROMPT), HumanMessage(content=str(messages))]
-
-        try:
-            user_prefs = await structured_llm.ainvoke(extraction_msg)
-            user_details = user_prefs.model_dump()
-
-            if not user_details.get("interests") or user_details["interests"].lower() == "unknown":
-                user_details["interests"] = "General Sightseeing"
-
-            if not user_details.get("start_location"):
-                user_details["start_location"] = "the user's current location"
-
-            dests = user_details.get("destinations") or []
-            primary = user_details.get("destination", "")
-            if dests and primary and primary not in dests:
-                dests.insert(0, primary)
-            elif not dests and primary:
-                dests = []
-            user_details["destinations"] = dests
-
-            season_suggestion = _compute_season_suggestion(user_details)
-
-        except Exception as e:
-            # Fail loud: don't fabricate a destination and silently plan the wrong
-            # trip. Tell the user and stay in the interview so they can retry.
-            logger.error(f"Extraction failed, asking the user to rephrase: {e}")
-            return {
-                "messages": [
-                    {
-                        "role": "model",
-                        "content": "Sorry — I had trouble pinning down your trip details. "
-                        "Could you tell me again where you'd like to go and for how long?",
-                    }
-                ],
-                "interview_count": interview_count,
-                "next_node": "interviewer",
-                "debug_logs": [log],
-            }
-
-        old_details = state.get("user_details", {})
-        old_dest = old_details.get("destination")
-        new_dest = user_details.get("destination")
-
-        if old_dest and old_dest != new_dest:
-            logger.info(f"Destination changed from {old_dest} to {new_dest}. Resetting research data.")
-            return {
-                "user_details": user_details,
-                "season_suggestion": season_suggestion,
-                "food_data": None,
-                "activity_data": None,
-                "hotel_data": None,
-                "draft_itinerary": None,
-                "iteration_count": 0,
-                "interview_count": 0,
-                "next_node": "research",
-                "messages": [
-                    {"role": "model", "content": f"Changing plans to {new_dest}! Let me research that for you..."}
-                ],
-            }
-
+    # 1. Extract the currently-known slots from the whole conversation, every turn.
+    structured_llm = get_llm_for_role("extraction").with_structured_output(UserPreferences)
+    try:
+        prefs = await structured_llm.ainvoke(
+            [SystemMessage(content=_EXTRACTION_PROMPT), HumanMessage(content=str(messages))]
+        )
+        user_details = prefs.model_dump()
+    except Exception as e:
+        # Fail loud: don't fabricate a trip. Ask the user to rephrase and stay put.
+        logger.error(f"Extraction failed, asking the user to rephrase: {e}")
         return {
-            "messages": [{"role": "model", "content": "Great! I'm researching your trip now..."}],
+            "messages": [
+                {
+                    "role": "model",
+                    "content": "Sorry — I had trouble pinning down your trip details. "
+                    "Could you tell me again where you'd like to go and for how long?",
+                }
+            ],
+            "next_node": "interviewer",
+            "debug_logs": [log_usage("interviewer", t0)],
+        }
+
+    # 2. Deterministic decision (pure helper) — this is what prevents looping.
+    if not _is_ready(user_details, user_turns):
+        return await _ask_for(_missing_field(user_details), messages, t0)
+
+    user_details = _finalize_details(user_details)
+    season_suggestion = _compute_season_suggestion(user_details)
+    log = log_usage("interviewer", t0)
+
+    # If the destination changed from a prior run (only possible with a checkpointer),
+    # reset research data. Harmless no-op in the current stateless setup.
+    old_dest = state.get("user_details", {}).get("destination")
+    new_dest = user_details.get("destination")
+    if old_dest and old_dest != new_dest:
+        logger.info(f"Destination changed from {old_dest} to {new_dest}. Resetting research data.")
+        return {
             "user_details": user_details,
             "season_suggestion": season_suggestion,
-            "interview_count": 0,
+            "food_data": None,
+            "activity_data": None,
+            "hotel_data": None,
+            "draft_itinerary": None,
+            "iteration_count": 0,
             "next_node": "research",
-            "debug_logs": [log],
+            "messages": [
+                {"role": "model", "content": f"Changing plans to {new_dest}! Let me research that for you..."}
+            ],
         }
 
     return {
-        "messages": [{"role": "model", "content": content}],
-        "interview_count": interview_count,
-        "next_node": "interviewer",
+        "messages": [{"role": "model", "content": "Great! I'm researching your trip now..."}],
+        "user_details": user_details,
+        "season_suggestion": season_suggestion,
+        "next_node": "research",
         "debug_logs": [log],
     }
