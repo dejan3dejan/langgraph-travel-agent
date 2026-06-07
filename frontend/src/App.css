@@ -6,6 +6,7 @@
   flex-shrink: 0;
   padding: 26px 0 22px;
   text-align: center;
+  position: relative;
 }
 
 .logo-row {
@@ -67,6 +68,26 @@
   box-shadow: var(--glow-online);
   animation: pulse-dot 2s ease-in-out infinite;
 }
+
+/* theme toggle: a small raised key in the header corner */
+.theme-toggle {
+  position: absolute;
+  top: 20px;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--r-full);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s var(--ease-spring), box-shadow 0.2s;
+}
+
+.theme-toggle:hover { transform: translateY(-2px); box-shadow: var(--shadow-floating); }
+.theme-toggle:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
 
 /* =========================================================
    CHAT AREA

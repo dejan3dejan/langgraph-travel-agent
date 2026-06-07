@@ -38,6 +38,20 @@
   --ease-spring:   cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
+/* dark theme: override the base tokens; the composite shadows recompute from these */
+[data-theme="dark"] {
+  --bg:            #2b2e33;
+  --panel:         #33373d;
+  --muted:         #212429;
+  --text:          #e6e8eb;
+  --text-muted:    #9aa0a6;
+  --accent:        #ff4757;
+  --accent-fg:     #ffffff;
+  --shadow-dark:   #1d1f23;
+  --shadow-light:  #393d44;
+  --border-dark:   #484d54;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -80,6 +94,11 @@ body::after {
   pointer-events: none;
   z-index: 0;
   background: radial-gradient(ellipse at 20% 0%, rgba(255,255,255,0.5) 0%, transparent 55%);
+}
+
+/* the white lighting hotspot would glare on a dark chassis; soften it */
+[data-theme="dark"] body::after {
+  background: radial-gradient(ellipse at 20% 0%, rgba(255,255,255,0.05) 0%, transparent 55%);
 }
 
 #root {

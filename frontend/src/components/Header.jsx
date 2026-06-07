@@ -1,4 +1,18 @@
+import { useState } from 'react'
+
 export default function Header() {
+  const [theme, setTheme] = useState(
+    () => document.documentElement.getAttribute('data-theme') || 'light',
+  )
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark')
+    else document.documentElement.removeAttribute('data-theme')
+    localStorage.setItem('theme', next)
+    setTheme(next)
+  }
+
   return (
     <header className="header">
       <div className="logo-row">
@@ -6,6 +20,14 @@ export default function Header() {
         <span className="logo-text">Atlas</span>
       </div>
       <p className="tagline">Your cartographer for the world</p>
+      <button
+        className="theme-toggle"
+        onClick={toggleTheme}
+        aria-label="Toggle dark mode"
+        title="Toggle theme"
+      >
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </button>
     </header>
   )
 }
