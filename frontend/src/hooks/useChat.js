@@ -127,6 +127,7 @@ export function useChat() {
       }
     } finally {
       setIsStreaming(false)
+      setStatuses([])  // clear progress pills once the turn ends (no lingering "thinking")
       abortRef.current = null
     }
   }, [isStreaming])
