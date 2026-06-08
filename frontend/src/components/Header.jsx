@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export default function Header() {
+export default function Header({ user, onSignIn, onSignOut }) {
   const [theme, setTheme] = useState(
     () => document.documentElement.getAttribute('data-theme') || 'light',
   )
@@ -15,11 +15,23 @@ export default function Header() {
 
   return (
     <header className="header">
+      <div className="auth-control">
+        {user ? (
+          <>
+            <span className="auth-user">{user.username}</span>
+            <button className="auth-link" onClick={onSignOut}>Sign out</button>
+          </>
+        ) : (
+          <button className="auth-link" onClick={onSignIn}>Sign in</button>
+        )}
+      </div>
+
       <div className="logo-row">
         <span className="compass">🧭</span>
         <span className="logo-text">Atlas</span>
       </div>
       <p className="tagline">Your cartographer for the world</p>
+
       <button
         className="theme-toggle"
         onClick={toggleTheme}

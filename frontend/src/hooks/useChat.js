@@ -23,9 +23,13 @@ export function useChat() {
     try {
       abortRef.current = new AbortController()
 
+      const headers = { 'Content-Type': 'application/json' }
+      const token = localStorage.getItem('atlas_token')
+      if (token) headers.Authorization = `Bearer ${token}`
+
       const res = await fetch('/api/chat/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           message: text,
           session_id: sessionIdRef.current,
