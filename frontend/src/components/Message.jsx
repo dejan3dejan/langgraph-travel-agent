@@ -7,16 +7,13 @@ const variants = {
   visible: { opacity: 1, y: 0 },
 }
 
-function looksLikeItinerary(text) {
-  return text.includes('## Day') || (text.includes('# ') && text.includes('Trip to'))
-}
-
 export default function Message({ role, content, isItinerary }) {
   const isUser = role === 'user'
   const isStream = role === 'ai-stream'
-  // Finalized AI messages carry an explicit is_itinerary flag from the backend.
-  // While streaming we don't have it yet, so fall back to a content heuristic.
-  const showMarkdown = !isUser && (isItinerary || (isStream && looksLikeItinerary(content)))
+  // Render markdown only for a finalized itinerary. While streaming we show plain text with
+  // newlines preserved and switch to formatted markdown on completion, so partial markdown never
+  // renders malformed mid-stream.
+  const showMarkdown = !isUser && isItinerary && !isStream
 
   return (
     <motion.div
@@ -36,13 +33,12 @@ export default function Message({ role, content, isItinerary }) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {content}
             </ReactMarkdown>
-            {isStream && <span className="cursor-blink">|</span>}
           </div>
         ) : (
-          <>
+          <span className={isStream ? 'stream-text' : undefined}>
             {content}
             {isStream && <span className="cursor-blink">|</span>}
-          </>
+          </span>
         )}
       </div>
     </motion.div>

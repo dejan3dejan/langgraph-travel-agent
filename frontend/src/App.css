@@ -187,6 +187,9 @@
   animation: blink 1s steps(2, start) infinite;
 }
 
+/* streaming plain text keeps its line breaks until the final markdown render */
+.stream-text { white-space: pre-wrap; }
+
 @keyframes blink { to { opacity: 0; } }
 
 /* =========================================================
