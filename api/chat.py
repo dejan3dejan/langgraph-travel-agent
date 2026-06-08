@@ -129,6 +129,7 @@ async def chat_stream(
                 elif event["type"] == "end":
                     accumulated_data["completed"] = True
                     is_itinerary = event.get("is_itinerary", False)
+                    accumulated_data["user_details"] = event.get("user_details", {})
 
                 yield f"data: {json.dumps(event)}\n\n"
 
@@ -153,10 +154,14 @@ async def chat_stream(
                         flag_modified(active_session, "data")
 
                         if is_itinerary:
+                            ud = accumulated_data.get("user_details", {})
                             new_trip = Trip(
                                 session_id=session_id,
                                 user_id=user.id if user else None,
-                                destination="Extracted from stream",
+                                destination=str(ud.get("destination", "Unknown")),
+                                duration=str(ud.get("duration", "Unknown")),
+                                budget=str(ud.get("budget", "Unknown")),
+                                interests=str(ud.get("interests", "Unknown")),
                                 itinerary_text=accumulated_data["itinerary"],
                             )
                             persist_db.add(new_trip)
