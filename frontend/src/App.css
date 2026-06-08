@@ -678,6 +678,49 @@
 }
 .toast__close:hover { color: var(--accent); }
 
+/* sign-up nudge for anonymous users after a plan */
+.signup-prompt {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 92vw;
+  padding: 12px 18px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  box-shadow: var(--shadow-floating);
+  animation: msg-in 0.3s var(--ease-out-expo) both;
+}
+
+.signup-prompt__actions { display: flex; align-items: center; gap: 8px; }
+
+.signup-prompt__cta {
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.signup-prompt__dismiss {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.signup-prompt__dismiss:hover { color: var(--accent); }
+
 /* saved-trips sidebar */
 .sidebar {
   position: fixed;

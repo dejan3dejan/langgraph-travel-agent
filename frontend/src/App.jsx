@@ -12,15 +12,19 @@ import AuthModal from './components/AuthModal'
 import Sidebar from './components/Sidebar'
 import Landing from './components/Landing'
 import Toast from './components/Toast'
+import SignupPrompt from './components/SignupPrompt'
 
 export default function App() {
   const auth = useAuth()
   const [toast, setToast] = useState(null)
+  const [signupPrompt, setSignupPrompt] = useState(false)
   const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
     onItineraryDelivered: () => {
       if (auth.user) {
         setToast('Trip saved to your account.')
         setTimeout(() => setToast(null), 4000)
+      } else {
+        setSignupPrompt(true)
       }
     },
   })
@@ -117,6 +121,12 @@ export default function App() {
       />
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {signupPrompt && !auth.user && (
+        <SignupPrompt
+          onSignUp={() => { setSignupPrompt(false); setAuthOpen(true) }}
+          onDismiss={() => setSignupPrompt(false)}
+        />
+      )}
       {authOpen && <AuthModal auth={auth} onClose={() => setAuthOpen(false)} />}
       {sidebarOpen && (
         <Sidebar
