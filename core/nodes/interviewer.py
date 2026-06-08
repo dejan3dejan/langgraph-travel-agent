@@ -194,9 +194,15 @@ async def interviewer_node(state: AgentState) -> dict:
 
     # 1. Extract the currently-known slots from the whole conversation, every turn.
     structured_llm = get_llm_for_role("extraction").with_structured_output(UserPreferences)
+    seeded = state.get("seeded_prefs") or {}
+    extraction_prompt = _EXTRACTION_PROMPT
+    if seeded:
+        extraction_prompt += (
+            f"\n\nThe user's SAVED DEFAULTS (use these unless the conversation overrides them): {seeded}"
+        )
     try:
         prefs = await structured_llm.ainvoke(
-            [SystemMessage(content=_EXTRACTION_PROMPT), HumanMessage(content=str(messages))]
+            [SystemMessage(content=extraction_prompt), HumanMessage(content=str(messages))]
         )
         user_details = prefs.model_dump()
     except Exception as e:

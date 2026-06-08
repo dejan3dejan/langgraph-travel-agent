@@ -9,13 +9,13 @@ class TravelOrchestrator:
         self.app = app
 
     async def chat(
-        self, user_message: str, history: list[dict[str, str]]
+        self, user_message: str, history: list[dict[str, str]], user_prefs: dict[str, Any] | None = None
     ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool]:
         """Standard invocation of the LangGraph workflow."""
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
 
-        inputs = {"messages": bound_history(updated_history), "iteration_count": 0}
+        inputs = {"messages": bound_history(updated_history), "iteration_count": 0, "seeded_prefs": user_prefs}
 
         try:
             result = await self.app.ainvoke(inputs, config={"recursion_limit": 25})
@@ -44,12 +44,14 @@ class TravelOrchestrator:
         except Exception as e:
             return f"System Error: {str(e)}", history, [], {}, False
 
-    async def stream_chat(self, user_message: str, history: list[dict[str, str]]):
+    async def stream_chat(
+        self, user_message: str, history: list[dict[str, str]], user_prefs: dict[str, Any] | None = None
+    ):
         """Asynchronous generator that yields clean dict events from LangGraph."""
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
 
-        inputs = {"messages": bound_history(updated_history), "iteration_count": 0}
+        inputs = {"messages": bound_history(updated_history), "iteration_count": 0, "seeded_prefs": user_prefs}
 
         produced_itinerary = False
         captured_user_details = {}

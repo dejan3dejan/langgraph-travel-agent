@@ -9,6 +9,7 @@ class AgentState(TypedDict):
 
     messages: Annotated[list[dict[str, str]], operator.add]
     user_details: dict[str, Any] | None
+    seeded_prefs: dict[str, Any] | None  # authed user's saved defaults, seeded into extraction
 
     # Research data — populated by parallel research nodes, enriched by logistics
     food_data: list[Restaurant] | None

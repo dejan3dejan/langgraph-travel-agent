@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from core.database import ChatSession, SessionLocal, Trip, User, get_db
+from core.database import ChatSession, SessionLocal, Trip, User, UserPreference, get_db
 from core.logger import get_logger
 from core.orchestrator import TravelOrchestrator
 
@@ -49,6 +49,27 @@ def get_or_create_session(db: Session, session_id: str | None, user: User | None
     return sid, db_session
 
 
+def _seeded_prefs(db: Session, user: User | None) -> dict | None:
+    """An authed user's saved travel defaults, mapped to UserPreferences field names, so the
+    interviewer can seed them and stop re-asking. None for anonymous users."""
+    if not user:
+        return None
+    pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
+    if not pref:
+        return None
+    mapping = {
+        "budget": pref.default_budget,
+        "interests": pref.default_interests,
+        "num_travelers": pref.num_travelers,
+        "age_range": pref.age_range,
+        "trip_type": pref.trip_type,
+        "start_location": pref.start_location,
+        "constraints": pref.constraints,
+    }
+    out = {k: v for k, v in mapping.items() if v}
+    return out or None
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     chat_message: ChatMessage,
@@ -61,7 +82,9 @@ async def chat(
     user_text = chat_message.message.strip()
 
     try:
-        response_text, updated_history, _, user_details, is_itinerary = await orchestrator.chat(user_text, history)
+        response_text, updated_history, _, user_details, is_itinerary = await orchestrator.chat(
+            user_text, history, _seeded_prefs(db, user)
+        )
 
         db_session.data["history"] = updated_history
         if not db_session.title or db_session.title == "New Chat":
@@ -107,6 +130,7 @@ async def chat_stream(
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
+    prefs = _seeded_prefs(db, user)
 
     if not db_session.title or db_session.title == "New Chat":
         db_session.title = user_text[:60]
@@ -122,7 +146,7 @@ async def chat_stream(
             # (this is what gives the web UI cross-turn memory).
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
 
-            async for event in orchestrator.stream_chat(user_text, history):
+            async for event in orchestrator.stream_chat(user_text, history, prefs):
                 if event["type"] == "reset":
                     accumulated_data["itinerary"] = ""
                 elif event["type"] == "token":
