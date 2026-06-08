@@ -1,5 +1,19 @@
 import { useState, useRef, useCallback } from 'react'
 
+// Map stored {user, model} history into UI message shape, marking itinerary messages so they
+// render as markdown.
+export function toUiMessages(history) {
+  return (history || []).map((m) =>
+    m.role === 'user'
+      ? { role: 'user', content: m.content }
+      : {
+          role: 'ai',
+          content: m.content,
+          isItinerary: m.content.includes('## Day') || m.content.includes('Trip to'),
+        },
+  )
+}
+
 export function useChat({ onItineraryDelivered } = {}) {
   // Keep the latest callback in a ref so sendMessage's deps stay stable.
   const onItineraryRef = useRef(onItineraryDelivered)
@@ -184,9 +198,17 @@ export function useChat({ onItineraryDelivered } = {}) {
     setStatuses([])
   }, [])
 
+  // Resume a saved conversation: adopt its session id and hydrate the messages.
+  const loadSession = useCallback((sessionId, history) => {
+    sessionIdRef.current = sessionId
+    localStorage.setItem('atlas_session_id', sessionId)
+    setMessages(toUiMessages(history))
+    setStatuses([])
+  }, [])
+
   const retry = useCallback(() => {
     if (lastTextRef.current) return sendMessage(lastTextRef.current, { isRetry: true })
   }, [sendMessage])
 
-  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, retry }
+  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry }
 }

@@ -1,5 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { useChat } from '../hooks/useChat'
+import { useChat, toUiMessages } from '../hooks/useChat'
 
 function encode(s) {
   return new TextEncoder().encode(s)
@@ -185,4 +185,27 @@ test('D3.2: retry re-sends the last message, drops the error, no duplicate user 
     expect(result.current.messages.some((m) => m.role === 'ai' && m.content.includes('Trip to Rome'))).toBe(true)
   })
   expect(result.current.messages.filter((m) => m.role === 'user').length).toBe(1)
+})
+
+test('A1: toUiMessages maps roles and marks itineraries', () => {
+  expect(
+    toUiMessages([
+      { role: 'user', content: 'plan rome' },
+      { role: 'model', content: '# Trip to Rome\n## Day 1' },
+      { role: 'model', content: 'How many days?' },
+    ]),
+  ).toEqual([
+    { role: 'user', content: 'plan rome' },
+    { role: 'ai', content: '# Trip to Rome\n## Day 1', isItinerary: true },
+    { role: 'ai', content: 'How many days?', isItinerary: false },
+  ])
+})
+
+test('A1: loadSession hydrates messages and adopts the session', () => {
+  const { result } = renderHook(() => useChat())
+  act(() => {
+    result.current.loadSession('sess-9', [{ role: 'user', content: 'hi' }])
+  })
+  expect(result.current.messages).toEqual([{ role: 'user', content: 'hi' }])
+  expect(localStorage.getItem('atlas_session_id')).toBe('sess-9')
 })

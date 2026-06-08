@@ -16,7 +16,7 @@ import Toast from './components/Toast'
 export default function App() {
   const auth = useAuth()
   const [toast, setToast] = useState(null)
-  const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, retry } = useChat({
+  const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
     onItineraryDelivered: () => {
       if (auth.user) {
         setToast('Trip saved to your account.')
@@ -55,6 +55,16 @@ export default function App() {
 
   const handleSelectTrip = async (trip) => {
     const detail = await trips.getDetail(trip.id)
+    // Prefer resuming the full conversation so the user can keep chatting.
+    if (detail?.session_id) {
+      const session = await trips.getSession(detail.session_id)
+      if (session) {
+        loadSession(session.session_id, session.history)
+        setSidebarOpen(false)
+        return
+      }
+    }
+    // Fallback: no resumable session, show the itinerary read-only.
     if (detail?.itinerary_text) {
       showItinerary(detail.itinerary_text)
       setSidebarOpen(false)

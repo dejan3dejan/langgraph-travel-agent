@@ -47,5 +47,10 @@ export function useTrips(user) {
     return res.ok ? res.json() : null
   }, [])
 
-  return { trips, loading, error, refresh, remove, getDetail }
+  const getSession = useCallback(async (sessionId) => {
+    const res = await fetch(`/api/users/sessions/${sessionId}`, { headers: authHeaders() })
+    return res.ok ? res.json() : null
+  }, [])
+
+  return { trips, loading, error, refresh, remove, getDetail, getSession }
 }
