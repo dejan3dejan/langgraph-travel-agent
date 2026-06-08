@@ -628,3 +628,115 @@
 }
 
 .auth-toggle:hover { color: var(--accent); }
+
+/* saved-trips sidebar */
+.sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 40;
+  width: 300px;
+  max-width: 86vw;
+  height: 100dvh;
+  padding: 20px 16px;
+  background: var(--bg);
+  box-shadow: var(--shadow-floating);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: slide-in 0.3s var(--ease-out-expo) both;
+}
+
+@keyframes slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.sidebar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar__title {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.sidebar__close {
+  border: none;
+  background: var(--bg);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-full);
+  font-size: 1.1rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+}
+
+.sidebar__empty, .sidebar__error {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 8px 4px;
+  line-height: 1.5;
+}
+.sidebar__error { color: var(--accent); }
+
+.sidebar__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.trip-item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.trip-item__main {
+  flex: 1;
+  text-align: left;
+  border: none;
+  background: var(--bg);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 0.2s var(--ease-spring), box-shadow 0.2s;
+}
+.trip-item__main:hover { transform: translateY(-1px); box-shadow: var(--shadow-floating); }
+
+.trip-item__dest {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.trip-item__meta {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.trip-item__del {
+  border: none;
+  background: var(--bg);
+  color: var(--text-muted);
+  width: 36px;
+  border-radius: var(--r-md);
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: color 0.2s;
+}
+.trip-item__del:hover { color: var(--accent); }

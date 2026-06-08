@@ -147,5 +147,11 @@ export function useChat() {
     setStatuses([])
   }, [])
 
-  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat }
+  // Render a saved trip's itinerary as a read-only view (used by the trips sidebar).
+  const showItinerary = useCallback((text) => {
+    setMessages([{ role: 'ai', content: text, isItinerary: true }])
+    setStatuses([])
+  }, [])
+
+  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary }
 }
