@@ -1,6 +1,7 @@
 from typing import Any
 
 from .graph import app
+from .history import bound_history
 
 
 class TravelOrchestrator:
@@ -14,7 +15,7 @@ class TravelOrchestrator:
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
 
-        inputs = {"messages": updated_history, "iteration_count": 0}
+        inputs = {"messages": bound_history(updated_history), "iteration_count": 0}
 
         try:
             result = await self.app.ainvoke(inputs, config={"recursion_limit": 25})
@@ -48,7 +49,7 @@ class TravelOrchestrator:
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
 
-        inputs = {"messages": updated_history, "iteration_count": 0}
+        inputs = {"messages": bound_history(updated_history), "iteration_count": 0}
 
         produced_itinerary = False
         marker = "PLANNING_STARTED"  # interviewer trigger token; must never reach the user
