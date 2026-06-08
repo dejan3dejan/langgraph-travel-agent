@@ -37,6 +37,17 @@ export function useChat() {
         signal: abortRef.current.signal,
       })
 
+      if (!res.ok) {
+        let detail = `Request failed (${res.status})`
+        try {
+          const body = await res.json()
+          if (body.detail) detail = body.detail
+        } catch {
+          // non-JSON error body; keep the status-code fallback
+        }
+        throw new Error(detail)
+      }
+
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -123,10 +134,17 @@ export function useChat() {
         })
       }
     } catch (err) {
-      if (err.name !== 'AbortError') {
+      if (err.name === 'AbortError') {
+        // Stopped mid-stream: keep whatever was generated as a final message so there is no
+        // frozen ai-stream bubble with a blinking cursor.
+        setMessages(prev => {
+          const kept = prev.filter(m => m.role !== 'ai-stream')
+          return aiContent ? [...kept, { role: 'ai', content: aiContent }] : kept
+        })
+      } else {
         setMessages(prev => [
-          ...prev,
-          { role: 'ai', content: 'Connection lost. Please try again.' },
+          ...prev.filter(m => m.role !== 'ai-stream'),
+          { role: 'ai', content: err.message || 'Connection lost. Please try again.' },
         ])
       }
     } finally {
