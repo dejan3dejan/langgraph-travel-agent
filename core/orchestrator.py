@@ -60,7 +60,9 @@ class TravelOrchestrator:
             "research_food": "🔍 Searching for the best restaurants...",
             "research_activity": "🏛 Researching activities...",
             "research_hotel": "🏨 Finding accommodations...",
+            "logistics": "🗺️ Mapping the route...",
             "compiler": "✍️ Compiling your itinerary...",
+            "critic": "🔎 Reviewing the plan...",
         }
         async for event in self.app.astream_events(inputs, version="v2", config={"recursion_limit": 25}):
             kind = event["event"]
