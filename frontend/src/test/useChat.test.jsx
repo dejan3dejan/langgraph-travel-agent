@@ -105,6 +105,38 @@ test('D4: stopping mid-stream finalizes the partial, leaving no ghost', async ()
   })
 })
 
+test('B3: fires onItineraryDelivered when a plan is delivered', async () => {
+  const cb = vi.fn()
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"token","content":"# Trip to Rome"}\n\n',
+      'data: {"type":"end","is_itinerary":true}\n\n',
+    ]),
+  )
+  const { result } = renderHook(() => useChat({ onItineraryDelivered: cb }))
+  await act(async () => {
+    await result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(cb).toHaveBeenCalledTimes(1))
+})
+
+test('B3: does not fire onItineraryDelivered for a plain reply', async () => {
+  const cb = vi.fn()
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"token","content":"How many days?"}\n\n',
+      'data: {"type":"end","is_itinerary":false}\n\n',
+    ]),
+  )
+  const { result } = renderHook(() => useChat({ onItineraryDelivered: cb }))
+  await act(async () => {
+    await result.current.sendMessage('hi')
+  })
+  expect(cb).not.toHaveBeenCalled()
+})
+
 test('happy path: a normal stream stores the session id and finalizes the message', async () => {
   vi.stubGlobal(
     'fetch',

@@ -1,6 +1,10 @@
 import { useState, useRef, useCallback } from 'react'
 
-export function useChat() {
+export function useChat({ onItineraryDelivered } = {}) {
+  // Keep the latest callback in a ref so sendMessage's deps stay stable.
+  const onItineraryRef = useRef(onItineraryDelivered)
+  onItineraryRef.current = onItineraryDelivered
+
   const [messages, setMessages] = useState([])
   const [statuses, setStatuses] = useState([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -133,6 +137,8 @@ export function useChat() {
           return [...filtered, { role: 'ai', content: aiContent, isItinerary }]
         })
       }
+
+      if (isItinerary) onItineraryRef.current?.()
     } catch (err) {
       if (err.name === 'AbortError') {
         // Stopped mid-stream: keep whatever was generated as a final message so there is no

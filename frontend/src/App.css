@@ -649,6 +649,35 @@
 
 .auth-toggle:hover { color: var(--accent); }
 
+/* toast confirmation (e.g. trip saved) */
+.toast {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  box-shadow: var(--shadow-floating);
+  animation: msg-in 0.3s var(--ease-out-expo) both;
+}
+
+.toast__close {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.toast__close:hover { color: var(--accent); }
+
 /* saved-trips sidebar */
 .sidebar {
   position: fixed;
