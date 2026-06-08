@@ -20,7 +20,7 @@ export function useAuth() {
       const res = await fetch(`/api/users/${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, session_id: localStorage.getItem('atlas_session_id') || null }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Something went wrong')

@@ -20,11 +20,13 @@ class RegisterRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
     username: str = Field(..., min_length=2, max_length=50)
     password: str = Field(..., min_length=6, max_length=128)
+    session_id: str | None = None
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+    session_id: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -91,6 +93,18 @@ class SessionDetail(BaseModel):
 # Auth endpoints
 
 
+def _claim_session(db: Session, session_id: str | None, user_id: str) -> None:
+    """Assign an anonymous session (and its trips) to a user. Never touches a session that is
+    already owned by someone else."""
+    if not session_id:
+        return
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id, ChatSession.user_id.is_(None)).first()
+    if not session:
+        return
+    session.user_id = user_id
+    db.query(Trip).filter(Trip.session_id == session_id, Trip.user_id.is_(None)).update({"user_id": user_id})
+
+
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     """Create a new user account."""
@@ -110,6 +124,8 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
     prefs = UserPreference(user_id=user.id)
     db.add(prefs)
+
+    _claim_session(db, req.session_id, user.id)
 
     db.commit()
     db.refresh(user)
@@ -133,6 +149,9 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
 
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    _claim_session(db, req.session_id, user.id)
+    db.commit()
 
     token = create_access_token(user.id)
     logger.info(f"User logged in: {user.username}")
