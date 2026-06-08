@@ -10,6 +10,7 @@ import StatusBar from './components/StatusBar'
 import InputBar from './components/InputBar'
 import AuthModal from './components/AuthModal'
 import Sidebar from './components/Sidebar'
+import Landing from './components/Landing'
 
 export default function App() {
   const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary } = useChat()
@@ -17,6 +18,7 @@ export default function App() {
   const trips = useTrips(auth.user)
   const [authOpen, setAuthOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [entered, setEntered] = useState(() => localStorage.getItem('atlas_entered') === '1')
   const chatEndRef = useRef(null)
 
   useEffect(() => {
@@ -38,6 +40,17 @@ export default function App() {
       showItinerary(detail.itinerary_text)
       setSidebarOpen(false)
     }
+  }
+
+  if (!entered) {
+    return (
+      <Landing
+        onEnter={() => {
+          localStorage.setItem('atlas_entered', '1')
+          setEntered(true)
+        }}
+      />
+    )
   }
 
   return (
