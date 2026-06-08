@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 const TOKEN_KEY = 'atlas_token'
 const USER_KEY = 'atlas_user'
@@ -49,6 +49,39 @@ export function useAuth() {
     localStorage.removeItem(USER_KEY)
     setUser(null)
   }, [])
+
+  // Validate a stored token on load: a stale/expired token would otherwise leave the header
+  // showing a signed-in user while requests silently fall back to anonymous.
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (!token) return
+    let cancelled = false
+    fetch('/api/users/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (res) => {
+        if (cancelled) return
+        if (res.ok) {
+          const u = await res.json()
+          localStorage.setItem(USER_KEY, JSON.stringify(u))
+          setUser(u)
+        } else {
+          localStorage.removeItem(TOKEN_KEY)
+          localStorage.removeItem(USER_KEY)
+          setUser(null)
+        }
+      })
+      .catch(() => {
+        // network error: keep the cached user and revalidate next load
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Any request that returns 401 dispatches this; treat it as an expired session.
+  useEffect(() => {
+    window.addEventListener('atlas-unauthorized', logout)
+    return () => window.removeEventListener('atlas-unauthorized', logout)
+  }, [logout])
 
   return { user, error, busy, login, register, logout }
 }

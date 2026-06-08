@@ -21,7 +21,10 @@ export function useTrips(user) {
     setError(null)
     try {
       const res = await fetch('/api/users/trips', { headers: authHeaders() })
-      if (!res.ok) throw new Error(`Could not load trips (${res.status})`)
+      if (!res.ok) {
+        if (res.status === 401) window.dispatchEvent(new Event('atlas-unauthorized'))
+        throw new Error(`Could not load trips (${res.status})`)
+      }
       setTrips(await res.json())
     } catch (e) {
       setError(e.message)

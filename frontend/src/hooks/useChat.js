@@ -48,6 +48,7 @@ export function useChat({ onItineraryDelivered } = {}) {
       })
 
       if (!res.ok) {
+        if (res.status === 401) window.dispatchEvent(new Event('atlas-unauthorized'))
         let detail = `Request failed (${res.status})`
         try {
           const body = await res.json()

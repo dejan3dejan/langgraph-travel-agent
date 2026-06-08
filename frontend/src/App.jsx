@@ -34,6 +34,15 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, statuses])
 
+  useEffect(() => {
+    const onExpired = () => {
+      setToast('Session expired. Please sign in again.')
+      setTimeout(() => setToast(null), 5000)
+    }
+    window.addEventListener('atlas-unauthorized', onExpired)
+    return () => window.removeEventListener('atlas-unauthorized', onExpired)
+  }, [])
+
   const hasMessages = messages.length > 0
   const showRetry = !isStreaming && messages[messages.length - 1]?.isError
 
