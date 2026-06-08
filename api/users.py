@@ -82,6 +82,12 @@ class SessionSummary(BaseModel):
     message_count: int
 
 
+class SessionDetail(BaseModel):
+    session_id: str
+    title: str
+    history: list[dict]
+
+
 # Auth endpoints
 
 
@@ -276,6 +282,20 @@ async def list_sessions(user: User = Depends(require_user), db: Session = Depend
         )
         for s in sessions
     ]
+
+
+@router.get("/sessions/{session_id}", response_model=SessionDetail)
+async def get_session(session_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Get a chat session's full history so the client can resume the conversation."""
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id, ChatSession.user_id == user.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return SessionDetail(
+        session_id=session.session_id,
+        title=session.title or "New Chat",
+        history=session.data.get("history", []) if session.data else [],
+    )
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
