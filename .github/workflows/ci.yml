@@ -55,3 +55,25 @@ jobs:
           OPENAI_API_KEY: fake-ci-key
           GEMINI_API_KEY: fake-ci-key
         run: pytest
+
+  # Frontend test suite (vitest). Uses npm install (not ci) so cross-platform optional
+  # binaries resolve on the Linux runner regardless of the lockfile's host platform.
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm install
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
