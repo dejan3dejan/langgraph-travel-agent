@@ -115,6 +115,7 @@ async def chat_stream(
     async def event_generator():
         accumulated_data = {"itinerary": "", "completed": False, "start_time": datetime.now(UTC)}
         is_itinerary = False
+        cancelled = False
 
         try:
             # Tell the client its session id up front so it can resend it next turn
@@ -134,13 +135,15 @@ async def chat_stream(
                 yield f"data: {json.dumps(event)}\n\n"
 
         except asyncio.CancelledError:
+            cancelled = True
             logger.warning(f"Stream cancelled for session {session_id}")
             raise
         except Exception as e:
             logger.error(f"Stream error: {e}")
             yield f'data: {json.dumps({"type": "error", "content": "An internal error occurred."})}\n\n'
         finally:
-            if accumulated_data["itinerary"].strip():
+            # On client cancel we discard the partial so a stopped turn leaves no ghost in history.
+            if not cancelled and accumulated_data["itinerary"].strip():
                 persist_db = SessionLocal()
                 try:
                     new_history = list(history)
