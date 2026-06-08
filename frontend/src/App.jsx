@@ -8,7 +8,7 @@ import StatusBar from './components/StatusBar'
 import InputBar from './components/InputBar'
 
 export default function App() {
-  const { messages, statuses, isStreaming, sendMessage, stopStreaming } = useChat()
+  const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat } = useChat()
   const chatEndRef = useRef(null)
 
   useEffect(() => {
@@ -20,6 +20,12 @@ export default function App() {
   return (
     <>
       <Header />
+
+      {hasMessages && (
+        <div className="toolbar">
+          <button className="prompt-chip" onClick={newChat}>New chat</button>
+        </div>
+      )}
 
       {!hasMessages ? (
         <Welcome onPrompt={sendMessage} />

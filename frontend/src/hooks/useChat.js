@@ -5,7 +5,7 @@ export function useChat() {
   const [statuses, setStatuses] = useState([])
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef(null)
-  const historyRef = useRef([])
+  const sessionIdRef = useRef(localStorage.getItem('atlas_session_id') || null)
 
   const sendMessage = useCallback(async (text) => {
     if (!text.trim() || isStreaming) return
@@ -28,7 +28,7 @@ export function useChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          history: historyRef.current,
+          session_id: sessionIdRef.current,
         }),
         signal: abortRef.current.signal,
       })
@@ -54,6 +54,12 @@ export function useChat() {
           try { event = JSON.parse(raw) } catch { continue }
 
           switch (event.type) {
+            case 'session': {
+              sessionIdRef.current = event.session_id
+              localStorage.setItem('atlas_session_id', event.session_id)
+              break
+            }
+
             case 'status': {
               if (lastActiveNode) {
                 currentStatuses = currentStatuses.map(s =>
@@ -112,12 +118,6 @@ export function useChat() {
           return [...filtered, { role: 'ai', content: aiContent, isItinerary }]
         })
       }
-
-      historyRef.current = [
-        ...historyRef.current,
-        { role: 'user', content: text },
-        { role: 'model', content: aiContent },
-      ]
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages(prev => [
@@ -136,5 +136,12 @@ export function useChat() {
     abortRef.current?.abort()
   }, [])
 
-  return { messages, statuses, isStreaming, sendMessage, stopStreaming }
+  const newChat = useCallback(() => {
+    sessionIdRef.current = null
+    localStorage.removeItem('atlas_session_id')
+    setMessages([])
+    setStatuses([])
+  }, [])
+
+  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat }
 }

@@ -103,6 +103,14 @@
   scroll-behavior: smooth;
 }
 
+/* fixed toolbar row above the scrolling chat (holds the New chat reset) */
+.toolbar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 6px 8px;
+}
+
 /* =========================================================
    MESSAGES  — bolted panels
    ========================================================= */

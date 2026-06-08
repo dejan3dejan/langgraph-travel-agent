@@ -117,6 +117,10 @@ async def chat_stream(
         is_itinerary = False
 
         try:
+            # Tell the client its session id up front so it can resend it next turn
+            # (this is what gives the web UI cross-turn memory).
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+
             async for event in orchestrator.stream_chat(user_text, history):
                 if event["type"] == "reset":
                     accumulated_data["itinerary"] = ""
