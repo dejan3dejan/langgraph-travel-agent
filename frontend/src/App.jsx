@@ -16,7 +16,7 @@ import Toast from './components/Toast'
 export default function App() {
   const auth = useAuth()
   const [toast, setToast] = useState(null)
-  const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary } = useChat({
+  const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, retry } = useChat({
     onItineraryDelivered: () => {
       if (auth.user) {
         setToast('Trip saved to your account.')
@@ -35,6 +35,7 @@ export default function App() {
   }, [messages, statuses])
 
   const hasMessages = messages.length > 0
+  const showRetry = !isStreaming && messages[messages.length - 1]?.isError
 
   // Sign out also resets the chat so the next person does not inherit the session.
   const handleSignOut = () => {
@@ -73,6 +74,7 @@ export default function App() {
 
       {hasMessages && (
         <div className="toolbar">
+          {showRetry && <button className="prompt-chip" onClick={retry}>Retry</button>}
           <button className="prompt-chip" onClick={newChat}>New chat</button>
         </div>
       )}

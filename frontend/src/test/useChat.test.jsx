@@ -157,3 +157,32 @@ test('happy path: a normal stream stores the session id and finalizes the messag
   })
   expect(localStorage.getItem('atlas_session_id')).toBe('sess-123')
 })
+
+test('D3.2: retry re-sends the last message, drops the error, no duplicate user bubble', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ detail: 'boom' }) })),
+  )
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(result.current.messages.some((m) => m.isError)).toBe(true))
+
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"token","content":"# Trip to Rome"}\n\n',
+      'data: {"type":"end","is_itinerary":true}\n\n',
+    ]),
+  )
+  await act(async () => {
+    await result.current.retry()
+  })
+
+  await waitFor(() => {
+    expect(result.current.messages.some((m) => m.isError)).toBe(false)
+    expect(result.current.messages.some((m) => m.role === 'ai' && m.content.includes('Trip to Rome'))).toBe(true)
+  })
+  expect(result.current.messages.filter((m) => m.role === 'user').length).toBe(1)
+})

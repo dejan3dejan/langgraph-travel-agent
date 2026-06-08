@@ -10,12 +10,18 @@ export function useChat({ onItineraryDelivered } = {}) {
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef(null)
   const sessionIdRef = useRef(localStorage.getItem('atlas_session_id') || null)
+  const lastTextRef = useRef('')
 
-  const sendMessage = useCallback(async (text) => {
+  const sendMessage = useCallback(async (text, opts = {}) => {
     if (!text.trim() || isStreaming) return
 
-    const userMsg = { role: 'user', content: text }
-    setMessages(prev => [...prev, userMsg])
+    lastTextRef.current = text
+    if (opts.isRetry) {
+      // drop the trailing error message, then re-send without a duplicate user bubble
+      setMessages(prev => (prev[prev.length - 1]?.isError ? prev.slice(0, -1) : prev))
+    } else {
+      setMessages(prev => [...prev, { role: 'user', content: text }])
+    }
     setStatuses([])
     setIsStreaming(true)
 
@@ -122,7 +128,7 @@ export function useChat({ onItineraryDelivered } = {}) {
             case 'error': {
               setMessages(prev => [
                 ...prev.filter(m => m.role !== 'ai-stream'),
-                { role: 'ai', content: event.content || 'Something went wrong.' },
+                { role: 'ai', content: event.content || 'Something went wrong.', isError: true },
               ])
               break
             }
@@ -150,7 +156,7 @@ export function useChat({ onItineraryDelivered } = {}) {
       } else {
         setMessages(prev => [
           ...prev.filter(m => m.role !== 'ai-stream'),
-          { role: 'ai', content: err.message || 'Connection lost. Please try again.' },
+          { role: 'ai', content: err.message || 'Connection lost. Please try again.', isError: true },
         ])
       }
     } finally {
@@ -177,5 +183,9 @@ export function useChat({ onItineraryDelivered } = {}) {
     setStatuses([])
   }, [])
 
-  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary }
+  const retry = useCallback(() => {
+    if (lastTextRef.current) return sendMessage(lastTextRef.current, { isRetry: true })
+  }, [sendMessage])
+
+  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, retry }
 }
