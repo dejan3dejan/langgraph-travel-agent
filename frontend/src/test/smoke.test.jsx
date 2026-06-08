@@ -6,3 +6,8 @@ test('Welcome renders its heading and prompt chips', () => {
   expect(screen.getByText(/Where shall we/i)).toBeInTheDocument()
   expect(screen.getByText(/Romantic weekend in Paris/i)).toBeInTheDocument()
 })
+
+test('Welcome hints at the travel-only scope', () => {
+  render(<Welcome onPrompt={() => {}} />)
+  expect(screen.getByText(/travel planning only/i)).toBeInTheDocument()
+})

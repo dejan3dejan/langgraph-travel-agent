@@ -16,6 +16,7 @@ export default function Welcome({ onPrompt }) {
         Tell me your destination, duration, and budget — I'll chart a
         day-by-day itinerary with real restaurants, activities, and hotels.
       </p>
+      <p className="welcome__scope">Travel planning only: destinations, food, activities, and stays.</p>
       <div className="prompt-chips">
         {PROMPTS.map((p) => (
           <button key={p} className="prompt-chip" onClick={() => onPrompt(p)}>

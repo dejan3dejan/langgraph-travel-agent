@@ -190,6 +190,14 @@
 /* streaming plain text keeps its line breaks until the final markdown render */
 .stream-text { white-space: pre-wrap; }
 
+/* small disclaimer under a delivered itinerary */
+.estimate-note {
+  margin-top: 1rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 @keyframes blink { to { opacity: 0; } }
 
 /* =========================================================
@@ -377,6 +385,15 @@
   font-size: 0.95rem;
   max-width: 460px;
   line-height: 1.65;
+}
+
+.welcome__scope {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.8;
 }
 
 .prompt-chips {

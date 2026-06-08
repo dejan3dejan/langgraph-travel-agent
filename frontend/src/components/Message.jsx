@@ -33,6 +33,7 @@ export default function Message({ role, content, isItinerary }) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {content}
             </ReactMarkdown>
+            <p className="estimate-note">Prices and availability are estimates, not live quotes.</p>
           </div>
         ) : (
           <span className={isStream ? 'stream-text' : undefined}>
