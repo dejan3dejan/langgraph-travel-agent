@@ -47,9 +47,11 @@ set `destinations` to the ordered list, `destination` to the first, and put the 
 description in `duration` (e.g. "4 days in Barcelona, 7 in Lisbon").
 
 WHERE THEY START (set `start_location`):
-- "I'm (already) in X" / "I'm in X now" / "currently in X" -> start_location = X (they are AT the
-  destination right now).
-- "from X" / "flying out of X" / "I live in X" -> start_location = X.
+- "I'm (already) in X" / "I'm in X now" / "currently in X" -> start_location = X. If they name no
+  other place they want to travel to, also set `destination` = X (they want to explore the city
+  they are already in, e.g. "I'm already in Bratislava" -> destination = Bratislava).
+- "from X" / "flying out of X" / "I live in X" -> start_location = X (their origin, NOT the
+  destination, unless they name the destination separately).
 
 DO THEY NEED LODGING (set `needs_accommodation`):
 - false when they already have it or do not need it: "already in <the destination city>",
