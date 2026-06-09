@@ -53,7 +53,13 @@ def test_intent_not_vague_with_concrete_interests():
 
 def _ready_details():
     """A fully-specified profile: nothing left to ask."""
-    return {"destination": "Rome", "duration": "5 days", "needs_accommodation": True, "interests": "food"}
+    return {
+        "destination": "Rome",
+        "duration": "5 days",
+        "needs_accommodation": True,
+        "interests": "food",
+        "start_location": "London",
+    }
 
 
 def test_asks_destination_first():
@@ -82,6 +88,50 @@ def test_asks_intent_even_when_accommodation_not_needed():
 
 def test_ready_when_all_slots_filled():
     assert _next_question(_ready_details(), user_turns=1) is None
+
+
+def test_asks_origin_last_when_other_slots_known():
+    d = {"destination": "Rome", "duration": "5 days", "needs_accommodation": True, "interests": "food"}
+    assert _next_question(d, user_turns=1) == "origin"
+
+
+def test_intent_takes_priority_over_origin():
+    # intent is asked before origin: never ask origin while we still don't know what they want
+    d = {"destination": "Rome", "duration": "5 days", "needs_accommodation": True, "interests": ""}
+    assert _next_question(d, user_turns=1) == "intent"
+
+
+def test_no_origin_ask_when_origin_known():
+    assert _next_question(_ready_details(), user_turns=1) is None
+
+
+def test_asks_origin_when_only_placeholder():
+    # extraction may omit origin, leaving the schema default placeholder; treat it as pending (ask)
+    d = {
+        "destination": "Rome",
+        "duration": "5 days",
+        "needs_accommodation": True,
+        "interests": "food",
+        "start_location": "the user's current location",
+    }
+    assert _next_question(d, user_turns=1) == "origin"
+
+
+def test_no_origin_ask_when_declined_sentinel():
+    # an explicit decline maps to the "declined" sentinel; the gate must not re-ask
+    d = {
+        "destination": "Rome",
+        "duration": "5 days",
+        "needs_accommodation": True,
+        "interests": "food",
+        "start_location": "declined",
+    }
+    assert _next_question(d, user_turns=1) is None
+
+
+def test_backstop_skips_origin():
+    d = {"destination": "Rome", "duration": "5 days", "needs_accommodation": True, "interests": "food"}
+    assert _next_question(d, user_turns=MAX_INTERVIEW_TURNS) is None
 
 
 def test_backstop_plans_despite_unknown_soft_slots():
@@ -123,6 +173,12 @@ def test_intent_question_acknowledges_already_there():
     d = {"destination": "Bratislava", "start_location": "Bratislava", "needs_accommodation": False, "interests": ""}
     text = _question_text("intent", d).lower()
     assert "already" in text  # acknowledges they're in town, no lodging needed
+
+
+def test_question_text_origin_has_skip_affordance():
+    text = _question_text("origin", {}).lower()
+    assert "from" in text  # where they're starting from
+    assert "skip" in text  # explicit affordance to decline
 
 
 # finalize details
@@ -169,6 +225,13 @@ def test_finalize_defaults_interests_and_start_location():
     out = _finalize_details({"destination": "Rome", "duration": "5 days", "interests": "", "start_location": ""})
     assert out["interests"] == "General Sightseeing"
     assert out["start_location"] == "the user's current location"
+
+
+def test_finalize_preserves_origin_sentinel():
+    # a declined origin must survive finalize as the sentinel (compiler degrades it), not get
+    # overwritten with the placeholder
+    out = _finalize_details({"destination": "Rome", "duration": "3 days", "start_location": "declined"})
+    assert out["start_location"] == "declined"
 
 
 def test_finalize_prepends_primary_to_destinations():

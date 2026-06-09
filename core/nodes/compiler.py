@@ -168,10 +168,10 @@ def _accommodation_format_section(needs_accommodation: bool) -> str:
 
 def _origin_known(start_location: str | None) -> bool:
     """True when we have a real starting city. The default placeholder ('...current location') and
-    the decline sentinel ('unspecified') both mean unknown and must degrade rather than leak into a
+    the decline sentinel ('declined') both mean unknown and must degrade rather than leak into a
     'from X' transport line."""
     s = (start_location or "").strip().lower()
-    return bool(s) and "current location" not in s and s != "unspecified"
+    return bool(s) and "current location" not in s and s != "declined"
 
 
 def _transport_section(in_destination: bool, start_location: str, destination: str) -> str:

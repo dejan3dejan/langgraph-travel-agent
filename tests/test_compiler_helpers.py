@@ -69,7 +69,7 @@ def test_origin_known_for_real_city():
 
 def test_origin_unknown_for_placeholder_and_sentinel():
     assert _origin_known("the user's current location") is False
-    assert _origin_known("unspecified") is False
+    assert _origin_known("declined") is False
     assert _origin_known("") is False
     assert _origin_known(None) is False
 
@@ -90,7 +90,7 @@ def test_transport_getting_around_when_already_there():
 
 def test_transport_arriving_when_origin_unknown():
     # unknown origin must NOT leak the placeholder into a "from X" line
-    for unknown in ("the user's current location", "unspecified", ""):
+    for unknown in ("the user's current location", "declined", ""):
         s = _transport_section(False, unknown, "Rome")
         assert "Arriving in Rome" in s
         assert "Getting There" not in s

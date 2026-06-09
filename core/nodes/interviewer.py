@@ -15,7 +15,7 @@ from ..llm import get_llm_for_role
 from ..logger import get_logger
 from ..schemas import UserPreferences
 from ..state import AgentState
-from ._utils import _in_destination, log_usage
+from ._utils import _in_destination, _origin_pending, log_usage
 
 logger = get_logger(__name__)
 
@@ -52,6 +52,10 @@ WHERE THEY START (set `start_location`):
   they are already in, e.g. "I'm already in Bratislava" -> destination = Bratislava).
 - "from X" / "flying out of X" / "I live in X" -> start_location = X (their origin, NOT the
   destination, unless they name the destination separately).
+- ONLY if the user EXPLICITLY refuses to give their origin ("skip", "rather not say", "doesn't
+  matter", "prefer not to") -> start_location = "declined".
+- If the user has simply NOT said where they start from, LEAVE start_location EMPTY. Do NOT write
+  "declined", "unspecified", "unknown", or guess a city. Empty means "not asked yet".
 
 DO THEY NEED LODGING (set `needs_accommodation`):
 - false when they already have it or do not need it: "already in <the destination city>",
@@ -206,6 +210,10 @@ def _next_question(user_details: dict, user_turns: int) -> str | None:
         return "accommodation"
     if _intent_vague(user_details):
         return "intent"
+    # Lowest priority, and naturally skipped for in-destination trips (start_location is already set
+    # to the destination) or once the user has stated or declined an origin.
+    if _origin_pending(user_details):
+        return "origin"
     return None
 
 
@@ -222,6 +230,7 @@ _QUESTION_PROMPTS = {
         "(hotel booked, staying with friends, a local, or already in town)"
     ),
     "intent": "what they're in the mood for: food, sightseeing, something active, or nightlife",
+    "origin": "where they'll be travelling from (home city or airport), making clear they can skip it",
 }
 
 

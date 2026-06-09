@@ -19,6 +19,14 @@ def _in_destination(user_details: dict) -> bool:
     return start == dest or start in dest or dest in start
 
 
+def _origin_pending(user_details: dict) -> bool:
+    """True when we have not yet captured or been declined a starting point (empty, or the schema
+    default placeholder), so the interviewer should ask for it. A real city or the 'declined'
+    sentinel both count as resolved, so the gate stops asking."""
+    s = (user_details.get("start_location") or "").strip().lower()
+    return s == "" or "current location" in s
+
+
 def log_usage(node_name: str, start_time: float, response: Any = None) -> dict:
     """Build a timing/token-count log entry for debug_logs."""
     duration = time.time() - start_time

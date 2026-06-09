@@ -1,6 +1,6 @@
 """Unit tests for shared node helpers. Pure, no API."""
 
-from core.nodes._utils import _in_destination
+from core.nodes._utils import _in_destination, _origin_pending
 
 
 def test_in_destination_exact_match():
@@ -29,3 +29,14 @@ def test_in_destination_false_when_missing():
     assert _in_destination({"destination": "Rome"}) is False
     assert _in_destination({"start_location": "", "destination": "Rome"}) is False
     assert _in_destination({}) is False
+
+
+def test_origin_pending_for_empty_or_placeholder():
+    assert _origin_pending({}) is True
+    assert _origin_pending({"start_location": ""}) is True
+    assert _origin_pending({"start_location": "the user's current location"}) is True
+
+
+def test_origin_pending_false_when_resolved():
+    assert _origin_pending({"start_location": "London"}) is False  # stated
+    assert _origin_pending({"start_location": "declined"}) is False  # explicitly skipped
