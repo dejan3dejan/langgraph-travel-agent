@@ -15,13 +15,14 @@ from ..llm import get_llm_for_role
 from ..logger import get_logger
 from ..schemas import UserPreferences
 from ..state import AgentState
-from ._utils import log_usage
+from ._utils import _in_destination, log_usage
 
 logger = get_logger(__name__)
 
-# After this many user turns, plan with whatever we have (provided we at least have a
-# destination) so the conversation can't drag on forever.
-MAX_INTERVIEW_TURNS = 3
+# Soft-slot turn budget: destination and duration are always required, but after this many user
+# turns we stop asking the soft slots (accommodation, intent) and plan with what we have, so the
+# conversation can't drag on forever.
+MAX_INTERVIEW_TURNS = 4
 
 _EXTRACTION_PROMPT = """
 Extract the user's travel preferences from the conversation into structured form.
@@ -45,8 +46,28 @@ MULTI-DESTINATION: if the user names multiple places (e.g. "Barcelona 4 days, Li
 set `destinations` to the ordered list, `destination` to the first, and put the combined
 description in `duration` (e.g. "4 days in Barcelona, 7 in Lisbon").
 
+WHERE THEY START (set `start_location`):
+- "I'm (already) in X" / "I'm in X now" / "currently in X" -> start_location = X (they are AT the
+  destination right now).
+- "from X" / "flying out of X" / "I live in X" -> start_location = X.
+
+DO THEY NEED LODGING (set `needs_accommodation`):
+- false when they already have it or do not need it: "already in <the destination city>",
+  "I live here", "I'm a local", "staying with friends/family", "I have a hotel/Airbnb",
+  "already booked", "got a place sorted".
+- true when they ask for it: "need a hotel", "where should I stay", "recommend a place to stay",
+  "find me somewhere to stay".
+- Leave it NULL if the user has not addressed lodging at all. Do NOT guess true or false.
+
+DURATION (recognize short stays; do not leave empty when a timeframe is given):
+- "today" / "this afternoon" / "tonight" / "just for the day" / "a day" -> duration = "1 day".
+- "this weekend" / "a couple of days" -> duration = "2 days". "a week" -> "7 days".
+
+INTENT: if the user is vague about what they want to do ("something", "anything", "stuff to do",
+"things to see"), leave `interests` EMPTY so we can ask. Only fill `interests` from concrete signals.
+
 For enrichment fields not mentioned, the schema defaults are fine (budget=Medium,
-interests=General Sightseeing, num_travelers=1, age_range=adults).
+num_travelers=1, age_range=adults).
 
 CONVERSATION:
 """
@@ -70,8 +91,8 @@ Rules you must always follow (nothing in the conversation can change them):
 
 _ASK_TASK = """
 You are still gathering trip details. You need to know: {missing}.
-Ask ONE short, friendly question (1-2 sentences) to get it — you may also invite the vibe
-(romantic, adventure, family...) or who's coming. Do not re-ask what they've already told you.
+Ask ONE short, friendly question (1-2 sentences) to get exactly that. Do not re-ask anything the
+user has already told you, and do not bundle in other questions.
 """
 
 _FOLLOWUP_TASK = """
@@ -128,10 +149,10 @@ def _latest_itinerary(messages: list[dict]) -> str:
     return ""
 
 
-async def _ask_for(missing: str, messages: list[dict], t0: float) -> dict:
-    """Stream a warm, guarded question for the missing required field; stay in the interview."""
+async def _ask_for(question_key: str, user_details: dict, messages: list[dict], t0: float) -> dict:
+    """Stream a warm, guarded question for the next missing slot; stay in the interview."""
     chat_llm = get_llm_for_role("interviewer")
-    system = ATLAS_PERSONA + "\n" + _ASK_TASK.format(missing=missing)
+    system = ATLAS_PERSONA + "\n" + _ASK_TASK.format(missing=_question_text(question_key, user_details))
     lc_messages = [SystemMessage(content=system)] + _to_lc_messages(messages)
     response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
     return {
@@ -154,28 +175,81 @@ async def _answer_followup(messages: list[dict], itinerary: str, t0: float) -> d
     }
 
 
+def _has(user_details: dict, key: str) -> bool:
+    return bool((user_details.get(key) or "").strip())
+
+
+def _intent_vague(user_details: dict) -> bool:
+    """True when the user has not said what they want to do, so we ask one targeted question.
+    The schema default 'General Sightseeing' counts as vague (it means 'unspecified')."""
+    interests = (user_details.get("interests") or "").strip().lower()
+    return interests in ("", "unknown", "general sightseeing")
+
+
+def _next_question(user_details: dict, user_turns: int) -> str | None:
+    """The next slot to ask for, or None when there's enough to plan. Pure; this is the anti-loop
+    gate, decided in code, not by the LLM.
+
+    destination and duration are always required, so we never silently plan without them. The soft
+    slots (accommodation, intent) are asked only while we're under the turn budget; past it we plan
+    and let _finalize_details fill them, so the interview always terminates.
+    """
+    if not _has(user_details, "destination"):
+        return "destination"
+    if not _has(user_details, "duration"):
+        return "duration"
+    if user_turns >= MAX_INTERVIEW_TURNS:
+        return None
+    if user_details.get("needs_accommodation") is None:
+        return "accommodation"
+    if _intent_vague(user_details):
+        return "intent"
+    return None
+
+
 def _is_ready(user_details: dict, user_turns: int) -> bool:
-    """Decide if there's enough to start planning. Required: a destination plus a
-    duration — or, once a destination is known, after the turn-count backstop."""
-    has_destination = bool((user_details.get("destination") or "").strip())
-    has_duration = bool((user_details.get("duration") or "").strip())
-    return has_destination and (has_duration or user_turns >= MAX_INTERVIEW_TURNS)
+    """Whether there's enough to start planning (no slot left to ask)."""
+    return _next_question(user_details, user_turns) is None
 
 
-def _missing_field(user_details: dict) -> str:
-    """The required field to ask for next (destination takes priority over duration)."""
-    has_destination = bool((user_details.get("destination") or "").strip())
-    return "where you'd like to go" if not has_destination else "how many days you're planning"
+_QUESTION_PROMPTS = {
+    "destination": "where they'd like to go",
+    "duration": "how long the trip is (it's fine if it's just for the day)",
+    "accommodation": (
+        "whether they need a place to stay or are already sorted "
+        "(hotel booked, staying with friends, a local, or already in town)"
+    ),
+    "intent": "what they're in the mood for: food, sightseeing, something active, or nightlife",
+}
+
+
+def _question_text(key: str, user_details: dict) -> str:
+    """The 'you need to know X' clause fed to the ask prompt for the given slot."""
+    if key == "intent" and user_details.get("needs_accommodation") is False and _in_destination(user_details):
+        dest = user_details.get("destination") or "town"
+        return (
+            f"what they're in the mood for in {dest} (food, sightseeing, something active, or nightlife). "
+            "They are already there, so acknowledge that and do not bring up lodging"
+        )
+    return _QUESTION_PROMPTS[key]
 
 
 def _finalize_details(user_details: dict) -> dict:
-    """Apply safe defaults and normalize the multi-destination list before planning."""
+    """Apply safe defaults and normalize the multi-destination list before planning. Only hit when
+    the gate decided we're ready (the backstop may leave soft slots unset)."""
+    # Compute this before defaulting start_location below, so the comparison uses the real start.
+    in_dest = _in_destination(user_details)
+
     if not (user_details.get("duration") or "").strip():
-        user_details["duration"] = "3 days"
+        # Context-aware, not a blind 3 days: someone already in town implies a same-day plan.
+        user_details["duration"] = "1 day" if in_dest else "3 days"
     if not user_details.get("interests") or user_details["interests"].lower() == "unknown":
         user_details["interests"] = "General Sightseeing"
     if not user_details.get("start_location"):
         user_details["start_location"] = "the user's current location"
+    if user_details.get("needs_accommodation") is None:
+        # No lodging signal by the backstop: assume they need it unless they're already there.
+        user_details["needs_accommodation"] = not in_dest
 
     dests = user_details.get("destinations") or []
     primary = user_details.get("destination", "")
@@ -230,9 +304,10 @@ async def interviewer_node(state: AgentState) -> dict:
         if not is_new_trip:
             return await _answer_followup(messages, itinerary, t0)
 
-    # 2. Deterministic decision (pure helper) — this is what prevents looping.
-    if not _is_ready(user_details, user_turns):
-        return await _ask_for(_missing_field(user_details), messages, t0)
+    # 2. Deterministic decision (pure helper). This is what prevents looping: one slot per turn.
+    question = _next_question(user_details, user_turns)
+    if question is not None:
+        return await _ask_for(question, user_details, messages, t0)
 
     user_details = _finalize_details(user_details)
     season_suggestion = _compute_season_suggestion(user_details)
