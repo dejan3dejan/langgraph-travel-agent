@@ -10,7 +10,7 @@ from ..geo import group_places_by_zone, optimize_day_route
 from ..llm import get_llm_for_role
 from ..logger import get_logger
 from ..state import AgentState
-from ._utils import log_usage
+from ._utils import _in_destination, log_usage
 
 logger = get_logger(__name__)
 
@@ -76,7 +76,7 @@ def _get_overview_guidance(trip_type: str | None, age_range: str, num_travelers:
     return guides.get(trip_type, "(Brief summary of destination highlights tailored to traveler interests)")
 
 
-def _get_day_structure_guide(age_range: str, trip_type: str | None) -> str:
+def _get_day_structure_guide(age_range: str, trip_type: str | None, base_label: str = "your hotel") -> str:
     if age_range in ("kids", "mixed"):
         return """
 - **Morning:** (Kid-friendly activity, finish before lunch nap time)
@@ -98,8 +98,8 @@ def _get_day_structure_guide(age_range: str, trip_type: str | None) -> str:
 - **Late Afternoon:** (Recovery time or lighter exploration)
 - **Evening:** (Hearty meal to refuel)
 """
-    return """
-- **Morning:** [Activity] (X.X km from hotel, ~Y min walk/transit)
+    return f"""
+- **Morning:** [Activity] (X.X km from {base_label}, ~Y min walk/transit)
 - **Lunch:** [Restaurant] (Address) - [Cuisine], [Price]
 - **Afternoon:** [Activity]
 - **Evening:** [Dinner spot]
@@ -121,6 +121,58 @@ def _get_tips_guidance(age_range: str, trip_type: str | None, num_travelers: int
     return "\n".join(tips)
 
 
+# Situation-aware sections (accommodation, transport, proximity anchor)
+
+
+def _anchor_coords(hotel_dicts: list[dict], place_dicts: list[dict]) -> tuple[float | None, float | None]:
+    """Anchor for proximity grouping: the hotel when there is one, else the centroid of the
+    researched places, else nothing (the caller then skips grouping). Lets an already-in-city day
+    plan still cluster by walking distance without a hotel to anchor on."""
+    if hotel_dicts and hotel_dicts[0].get("lat") and hotel_dicts[0].get("lon"):
+        return hotel_dicts[0]["lat"], hotel_dicts[0]["lon"]
+    coords = [(p["lat"], p["lon"]) for p in place_dicts if p.get("lat") and p.get("lon")]
+    if not coords:
+        return None, None
+    return sum(c[0] for c in coords) / len(coords), sum(c[1] for c in coords) / len(coords)
+
+
+def _base_label(needs_accommodation: bool, in_destination: bool) -> str:
+    """How the narrative refers to the day's anchor point, so we stop saying 'hotel' when there
+    isn't one."""
+    if needs_accommodation:
+        return "your hotel"
+    return "the city centre" if in_destination else "where you're staying"
+
+
+def _accommodation_data_block(needs_accommodation: bool, hotel_json: str) -> str:
+    """Hotel options handed to the writer, or empty when the user already has lodging sorted."""
+    if not needs_accommodation:
+        return ""
+    return f"""
+═══════════════════════════════════════════════════════════════
+ACCOMMODATION OPTIONS
+═══════════════════════════════════════════════════════════════
+{hotel_json}
+"""
+
+
+def _accommodation_format_section(needs_accommodation: bool) -> str:
+    """The 'Recommended Accommodation' output section, or empty when the user doesn't need it."""
+    if not needs_accommodation:
+        return ""
+    return (
+        "\n## Recommended Accommodation\n"
+        "(Pick ONE hotel that matches the traveler profile - explain why it fits their needs)\n"
+    )
+
+
+def _transport_section(in_destination: bool, start_location: str, destination: str) -> str:
+    """Transport output section: getting there from an origin, or getting around once on the ground."""
+    if in_destination:
+        return f"\n## Getting Around {destination}\n(Local transport for hopping between the day's stops)\n"
+    return f"\n## Getting There & Transport\n(How to get from {start_location} to {destination})\n"
+
+
 # Compiler node
 
 
@@ -139,27 +191,27 @@ async def compiler_node(state: AgentState) -> dict:
     activity_dicts = [_slim_place(a.model_dump() if hasattr(a, "model_dump") else a) for a in activity_data]
     hotel_dicts = [_slim_place(h.model_dump() if hasattr(h, "model_dump") else h) for h in hotel_data]
 
-    hotel_lat, hotel_lon = None, None
-    if hotel_dicts:
-        hotel_lat = hotel_dicts[0].get("lat")
-        hotel_lon = hotel_dicts[0].get("lon")
+    in_destination = _in_destination(user_details)
+    needs_accommodation = user_details.get("needs_accommodation", True) is not False
+
+    all_places = []
+    for a in activity_dicts:
+        a["_type"] = "activity"
+        all_places.append(a)
+    for f in food_dicts:
+        f["_type"] = "restaurant"
+        all_places.append(f)
+
+    # Anchor on the hotel when there is one, otherwise the centroid of the places, so an
+    # already-in-city day still groups by walking distance.
+    anchor_lat, anchor_lon = _anchor_coords(hotel_dicts, all_places)
 
     zone_groups = {"near": [], "medium": [], "far": [], "remote": []}
-
-    if hotel_lat and hotel_lon:
-        all_places = []
-        for a in activity_dicts:
-            a["_type"] = "activity"
-            all_places.append(a)
-        for f in food_dicts:
-            f["_type"] = "restaurant"
-            all_places.append(f)
-
-        raw_zone_groups = group_places_by_zone(all_places, hotel_lat, hotel_lon)
-
+    if anchor_lat and anchor_lon:
+        raw_zone_groups = group_places_by_zone(all_places, anchor_lat, anchor_lon)
         for zone, places in raw_zone_groups.items():
             if places:
-                optimization = optimize_day_route(places, hotel_lat, hotel_lon)
+                optimization = optimize_day_route(places, anchor_lat, anchor_lon)
                 zone_groups[zone] = optimization.get("optimized_order", [])
             else:
                 zone_groups[zone] = []
@@ -191,10 +243,17 @@ async def compiler_node(state: AgentState) -> dict:
     trip_type = user_details.get("trip_type")
     season_suggestion = state.get("season_suggestion")
 
+    base_label = _base_label(needs_accommodation, in_destination)
     narrative_style = _get_narrative_style(num_travelers, age_range, trip_type)
     overview_guidance = _get_overview_guidance(trip_type, age_range, num_travelers)
-    day_structure_guide = _get_day_structure_guide(age_range, trip_type)
+    day_structure_guide = _get_day_structure_guide(age_range, trip_type, base_label)
     tips_guidance = _get_tips_guidance(age_range, trip_type, num_travelers)
+
+    accommodation_data = _accommodation_data_block(needs_accommodation, hotel_json)
+    accommodation_format = _accommodation_format_section(needs_accommodation)
+    transport_section = _transport_section(
+        in_destination, user_details.get("start_location", ""), user_details.get("destination", "")
+    )
 
     chat_llm = get_llm_for_role("compiler")
 
@@ -204,7 +263,7 @@ You are writing a practical travel itinerary for a trip to {user_details.get('de
 ═══════════════════════════════════════════════════════════════
 TRAVELER PROFILE (use this to personalize the narrative)
 ═══════════════════════════════════════════════════════════════
-- Departing from: {user_details.get('start_location', 'their home location')}
+- {"Currently in" if in_destination else "Departing from"}: {user_details.get('start_location', 'their home location')}
 - Number of travelers: {num_travelers}
 - Age range: {age_range}
 - Trip type: {trip_type or "general sightseeing"}
@@ -218,12 +277,7 @@ TRAVELER PROFILE (use this to personalize the narrative)
 NARRATIVE STYLE GUIDE
 ═══════════════════════════════════════════════════════════════
 {narrative_style}
-
-═══════════════════════════════════════════════════════════════
-ACCOMMODATION OPTIONS
-═══════════════════════════════════════════════════════════════
-{hotel_json}
-
+{accommodation_data}
 ═══════════════════════════════════════════════════════════════
 🗺️ PRE-GROUPED PLACES BY PROXIMITY (USE THIS FOR DAY PLANNING!)
 ═══════════════════════════════════════════════════════════════
@@ -238,11 +292,11 @@ ACCOMMODATION OPTIONS
    - Day 3+: Plan "far_from_hotel" or "day_trip_territory" as dedicated excursions
 
 2. **NEVER MIX ZONES IN ONE DAY** unless absolutely necessary:
-   - BAD: Morning in near_hotel zone, afternoon 50km away, dinner back near hotel
+   - BAD: Morning in near zone, afternoon 50km away, dinner back near {base_label}
    - GOOD: Full day exploring one area, with lunch and dinner in the same zone
 
 3. **ALWAYS MENTION TRAVEL INFO:**
-   - Distance from hotel
+   - Distance from {base_label}
    - Estimated travel time
    - Transport recommendation (walk/metro/bus/taxi)
 
@@ -266,21 +320,15 @@ OUTPUT FORMAT (Markdown)
 {overview_guidance}
 
 {f"## 🌤️ Best Time to Visit\\n{season_suggestion}\\n" if season_suggestion else ""}
-
-## Recommended Accommodation
-(Pick ONE hotel that matches the traveler profile - explain why it fits their needs)
-
+{accommodation_format}
 ## Day-by-Day Itinerary
 
-### Day 1: [Zone Theme - e.g., "Settling In Near Your Hotel"]
+### Day 1: [Zone Theme - e.g., "Getting Oriented Near {base_label}"]
 {day_structure_guide}
 
 ### Day 2: [Zone Theme]
 (Continue for each day, following the zone grouping strategy)
-
-## Getting There & Transport
-(How to get from {user_details.get('start_location')} to {user_details.get('destination')})
-
+{transport_section}
 ## Tips & Budget Notes
 {tips_guidance}
 

@@ -1,0 +1,72 @@
+"""Unit tests for compiler prompt-section helpers. Pure, no API."""
+
+from core.nodes.compiler import (
+    _accommodation_data_block,
+    _accommodation_format_section,
+    _anchor_coords,
+    _base_label,
+    _transport_section,
+)
+
+# proximity anchor
+
+
+def test_anchor_uses_hotel_when_present():
+    hotels = [{"lat": 48.1, "lon": 17.1}]
+    places = [{"lat": 49.0, "lon": 18.0}]
+    assert _anchor_coords(hotels, places) == (48.1, 17.1)
+
+
+def test_anchor_centroid_when_no_hotel():
+    places = [{"lat": 48.0, "lon": 17.0}, {"lat": 50.0, "lon": 19.0}]
+    assert _anchor_coords([], places) == (49.0, 18.0)
+
+
+def test_anchor_skips_hotel_without_coords():
+    assert _anchor_coords([{"name": "no coords"}], [{"lat": 48.0, "lon": 17.0}]) == (48.0, 17.0)
+
+
+def test_anchor_none_when_no_coords():
+    assert _anchor_coords([], [{"name": "x"}]) == (None, None)
+    assert _anchor_coords([], []) == (None, None)
+
+
+# narrative base label
+
+
+def test_base_label_is_hotel_when_lodging_needed():
+    assert _base_label(True, False) == "your hotel"
+    assert _base_label(True, True) == "your hotel"
+
+
+def test_base_label_avoids_hotel_when_not_needed():
+    assert "hotel" not in _base_label(False, True).lower()
+    assert "hotel" not in _base_label(False, False).lower()
+
+
+# accommodation sections
+
+
+def test_accommodation_sections_empty_when_not_needed():
+    assert _accommodation_data_block(False, '[{"name": "Hotel X"}]') == ""
+    assert _accommodation_format_section(False) == ""
+
+
+def test_accommodation_sections_present_when_needed():
+    data = _accommodation_data_block(True, '[{"name": "Hotel X"}]')
+    assert "ACCOMMODATION OPTIONS" in data and "Hotel X" in data
+    assert "Recommended Accommodation" in _accommodation_format_section(True)
+
+
+# transport section
+
+
+def test_transport_getting_there_from_origin():
+    s = _transport_section(False, "Vienna", "Rome")
+    assert "Getting There" in s and "Vienna" in s and "Rome" in s
+
+
+def test_transport_getting_around_when_already_there():
+    s = _transport_section(True, "Bratislava", "Bratislava")
+    assert "Getting Around" in s and "Bratislava" in s
+    assert "Getting There" not in s
