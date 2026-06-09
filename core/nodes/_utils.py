@@ -4,6 +4,21 @@ import time
 from typing import Any
 
 
+def _in_destination(user_details: dict) -> bool:
+    """True when the traveler is starting from the destination itself ("I'm already in X").
+
+    Drives already-there framing (local transport, no "getting there") and the accommodation
+    default. The default placeholder start ("the user's current location") is never in-destination.
+    Matches by case-insensitive substring so a bare city name lines up with a geocoded
+    "City, Country" on either side.
+    """
+    start = (user_details.get("start_location") or "").strip().lower()
+    dest = (user_details.get("destination") or "").strip().lower()
+    if not start or not dest or "current location" in start:
+        return False
+    return start == dest or start in dest or dest in start
+
+
 def log_usage(node_name: str, start_time: float, response: Any = None) -> dict:
     """Build a timing/token-count log entry for debug_logs."""
     duration = time.time() - start_time

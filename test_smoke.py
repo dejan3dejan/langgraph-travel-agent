@@ -54,6 +54,7 @@ def main():
             destination="Paris", start_location="NYC", duration="3 days", budget="Medium", interests="art"
         )
         assert prefs.destination == "Paris"
+        assert prefs.needs_accommodation is None  # unknown until stated/inferred
 
         critique = ItineraryCritique(approved=True, feedback="Good", score=9, missing_data=[])
         assert critique.approved is True

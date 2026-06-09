@@ -31,6 +31,14 @@ class UserPreferences(BaseModel):
         default=None,
         description="Specific constraints (e.g., 'pet friendly', 'wheelchair accessible', 'no car')",
     )
+    needs_accommodation: bool | None = Field(
+        default=None,
+        description=(
+            "True if the user needs lodging researched; False if already sorted "
+            "(hotel booked, staying with friends, local, or already in the destination city); "
+            "None if not stated yet."
+        ),
+    )
     focus: list[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
 
 
