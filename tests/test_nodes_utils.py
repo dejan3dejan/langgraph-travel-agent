@@ -1,4 +1,4 @@
-"""Unit tests for shared node helpers — pure, no API."""
+"""Unit tests for shared node helpers. Pure, no API."""
 
 from core.nodes._utils import _in_destination
 
