@@ -5,6 +5,7 @@ from core.nodes.compiler import (
     _accommodation_format_section,
     _anchor_coords,
     _base_label,
+    _origin_known,
     _transport_section,
 )
 
@@ -58,10 +59,25 @@ def test_accommodation_sections_present_when_needed():
     assert "Recommended Accommodation" in _accommodation_format_section(True)
 
 
-# transport section
+# origin known
 
 
-def test_transport_getting_there_from_origin():
+def test_origin_known_for_real_city():
+    assert _origin_known("London") is True
+    assert _origin_known("New York, USA") is True
+
+
+def test_origin_unknown_for_placeholder_and_sentinel():
+    assert _origin_known("the user's current location") is False
+    assert _origin_known("unspecified") is False
+    assert _origin_known("") is False
+    assert _origin_known(None) is False
+
+
+# transport section (three states)
+
+
+def test_transport_getting_there_from_known_origin():
     s = _transport_section(False, "Vienna", "Rome")
     assert "Getting There" in s and "Vienna" in s and "Rome" in s
 
@@ -70,3 +86,12 @@ def test_transport_getting_around_when_already_there():
     s = _transport_section(True, "Bratislava", "Bratislava")
     assert "Getting Around" in s and "Bratislava" in s
     assert "Getting There" not in s
+
+
+def test_transport_arriving_when_origin_unknown():
+    # unknown origin must NOT leak the placeholder into a "from X" line
+    for unknown in ("the user's current location", "unspecified", ""):
+        s = _transport_section(False, unknown, "Rome")
+        assert "Arriving in Rome" in s
+        assert "Getting There" not in s
+        assert "current location" not in s.lower()

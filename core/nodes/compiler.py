@@ -166,11 +166,25 @@ def _accommodation_format_section(needs_accommodation: bool) -> str:
     )
 
 
+def _origin_known(start_location: str | None) -> bool:
+    """True when we have a real starting city. The default placeholder ('...current location') and
+    the decline sentinel ('unspecified') both mean unknown and must degrade rather than leak into a
+    'from X' transport line."""
+    s = (start_location or "").strip().lower()
+    return bool(s) and "current location" not in s and s != "unspecified"
+
+
 def _transport_section(in_destination: bool, start_location: str, destination: str) -> str:
-    """Transport output section: getting there from an origin, or getting around once on the ground."""
+    """Transport output section, by situation: getting around once on the ground, getting there from
+    a known origin, or arriving when the origin is unknown (no placeholder leakage)."""
     if in_destination:
         return f"\n## Getting Around {destination}\n(Local transport for hopping between the day's stops)\n"
-    return f"\n## Getting There & Transport\n(How to get from {start_location} to {destination})\n"
+    if _origin_known(start_location):
+        return f"\n## Getting There & Transport\n(How to get from {start_location} to {destination})\n"
+    return (
+        f"\n## Arriving in {destination}\n"
+        "(Main airport or station, how to reach the centre, and local transport for getting around)\n"
+    )
 
 
 # Compiler node
@@ -251,9 +265,15 @@ async def compiler_node(state: AgentState) -> dict:
 
     accommodation_data = _accommodation_data_block(needs_accommodation, hotel_json)
     accommodation_format = _accommodation_format_section(needs_accommodation)
-    transport_section = _transport_section(
-        in_destination, user_details.get("start_location", ""), user_details.get("destination", "")
-    )
+    start_location = user_details.get("start_location", "")
+    transport_section = _transport_section(in_destination, start_location, user_details.get("destination", ""))
+
+    if in_destination:
+        origin_line = f"- Currently in: {user_details.get('destination', '')}"
+    elif _origin_known(start_location):
+        origin_line = f"- Departing from: {start_location}"
+    else:
+        origin_line = "- Departing from: (not specified)"
 
     chat_llm = get_llm_for_role("compiler")
 
@@ -263,7 +283,7 @@ You are writing a practical travel itinerary for a trip to {user_details.get('de
 ═══════════════════════════════════════════════════════════════
 TRAVELER PROFILE (use this to personalize the narrative)
 ═══════════════════════════════════════════════════════════════
-- {"Currently in" if in_destination else "Departing from"}: {user_details.get('start_location', 'their home location')}
+{origin_line}
 - Number of travelers: {num_travelers}
 - Age range: {age_range}
 - Trip type: {trip_type or "general sightseeing"}
