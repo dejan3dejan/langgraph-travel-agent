@@ -13,16 +13,19 @@ from ._utils import log_usage
 logger = get_logger(__name__)
 
 
-def _missing_categories(food: list, activities: list, hotels: list) -> list[str]:
+def _missing_categories(food: list, activities: list, hotels: list, needs_accommodation: bool = True) -> list[str]:
     """Categories whose research came back empty. This drives the re-research loop, instead of the
     LLM's subjective "is this generic" judgment, which rejected ungrounded data on every pass and
-    burned all three iterations re-researching with the same model (no improvement)."""
+    burned all three iterations re-researching with the same model (no improvement).
+
+    Hotels only count as missing when the user needs lodging; for an already-sorted stay the empty
+    hotel list is expected, so flagging it would loop re-research against a skipped category."""
     missing = []
     if not food:
         missing.append("food")
     if not activities:
         missing.append("activities")
-    if not hotels:
+    if needs_accommodation and not hotels:
         missing.append("hotels")
     return missing
 
@@ -36,7 +39,8 @@ async def critic_node(state: AgentState) -> dict:
     hotels = state.get("hotel_data") or []
     logger.info("Reviewing itinerary draft...")
 
-    missing = _missing_categories(food, activities, hotels)
+    needs_accommodation = user_details.get("needs_accommodation", True) is not False
+    missing = _missing_categories(food, activities, hotels, needs_accommodation)
 
     # Advisory quality note (feedback + score). It does NOT control the loop; only genuinely
     # missing research (empty category) sends us back. We still run it for the feedback/score.

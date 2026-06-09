@@ -17,3 +17,13 @@ def test_all_empty():
 
 def test_none_treated_as_empty():
     assert _missing_categories(None, None, None) == ["food", "activities", "hotels"]
+
+
+def test_empty_hotels_not_missing_when_accommodation_not_needed():
+    # already-sorted lodging: empty hotels must not trigger a wasted re-research loop
+    assert _missing_categories([{"name": "a"}], [{"name": "b"}], [], needs_accommodation=False) == []
+    assert _missing_categories([], [], [], needs_accommodation=False) == ["food", "activities"]
+
+
+def test_empty_hotels_missing_when_accommodation_needed():
+    assert _missing_categories([{"name": "a"}], [{"name": "b"}], [], needs_accommodation=True) == ["hotels"]
