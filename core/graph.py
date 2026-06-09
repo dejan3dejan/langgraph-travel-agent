@@ -26,6 +26,12 @@ workflow.add_node("critic", critic_node)
 workflow.add_edge(START, "interviewer")
 
 
+def _research_targets(categories) -> list[str]:
+    """Map research categories to node names, in the fixed order food, activity, hotel."""
+    node_for = {"food": "research_food", "activities": "research_activity", "hotels": "research_hotel"}
+    return [node_for[c] for c in ("food", "activities", "hotels") if c in categories]
+
+
 def router(state: AgentState):
     next_node = state.get("next_node")
 
@@ -36,30 +42,23 @@ def router(state: AgentState):
         critique = state.get("critique", {})
         missing = critique.get("missing_data", [])
         user_details = state.get("user_details", {})
-        focus = user_details.get("focus", [])
 
         if missing:
-            targets = []
-            if "food" in missing:
-                targets.append("research_food")
-            if "activities" in missing:
-                targets.append("research_activity")
-            if "hotels" in missing:
-                targets.append("research_hotel")
-            return targets
+            targets = _research_targets(missing)
+        else:
+            # User-chosen focus narrows the default; empty/unrecognized falls back to all three.
+            targets = _research_targets(user_details.get("focus", [])) or [
+                "research_food",
+                "research_activity",
+                "research_hotel",
+            ]
 
-        if focus:
-            targets = []
-            if "food" in focus:
-                targets.append("research_food")
-            if "activities" in focus:
-                targets.append("research_activity")
-            if "hotels" in focus:
-                targets.append("research_hotel")
-            if targets:
-                return targets
+        # Only research lodging when the user actually needs it. Single choke point so the default,
+        # focus, and critic re-research paths all honor it; never leave the list empty.
+        if user_details.get("needs_accommodation") is False:
+            targets = [t for t in targets if t != "research_hotel"] or ["research_food", "research_activity"]
 
-        return ["research_food", "research_activity", "research_hotel"]
+        return targets
 
     if next_node == "interviewer":
         return END

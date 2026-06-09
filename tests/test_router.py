@@ -35,6 +35,32 @@ def test_missing_data_takes_priority_over_focus():
     assert router(state) == ["research_activity"]
 
 
+def test_skips_hotel_research_when_accommodation_not_needed():
+    state = {"next_node": "research", "iteration_count": 0, "user_details": {"needs_accommodation": False}}
+    assert set(router(state)) == {"research_food", "research_activity"}
+
+
+def test_keeps_hotel_research_when_accommodation_needed():
+    state = {"next_node": "research", "iteration_count": 0, "user_details": {"needs_accommodation": True}}
+    assert set(router(state)) == {"research_food", "research_activity", "research_hotel"}
+
+
+def test_unknown_accommodation_still_researches_hotels():
+    # None/absent means not-yet-decided; default to researching (preserves prior behavior)
+    state = {"next_node": "research", "iteration_count": 0, "user_details": {"needs_accommodation": None}}
+    assert set(router(state)) == {"research_food", "research_activity", "research_hotel"}
+
+
+def test_hotel_only_focus_falls_back_when_not_needed():
+    # contradictory input (focus hotels but no lodging needed): still return real places to plan a day
+    state = {
+        "next_node": "research",
+        "iteration_count": 0,
+        "user_details": {"needs_accommodation": False, "focus": ["hotels"]},
+    }
+    assert set(router(state)) == {"research_food", "research_activity"}
+
+
 def test_approved_ends():
     assert router({"next_node": "approved", "iteration_count": 0}) == END
 
