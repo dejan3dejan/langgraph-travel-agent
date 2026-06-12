@@ -10,7 +10,7 @@ class TravelOrchestrator:
 
     async def chat(
         self, user_message: str, history: list[dict[str, str]], user_prefs: dict[str, Any] | None = None
-    ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool]:
+    ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool, bool]:
         """Standard invocation of the LangGraph workflow."""
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
@@ -39,10 +39,11 @@ class TravelOrchestrator:
                 result.get("debug_logs", []),
                 result.get("user_details", {}),
                 is_itinerary,
+                result.get("is_edit", False),
             )
 
         except Exception as e:
-            return f"System Error: {str(e)}", history, [], {}, False
+            return f"System Error: {str(e)}", history, [], {}, False, False
 
     async def stream_chat(
         self, user_message: str, history: list[dict[str, str]], user_prefs: dict[str, Any] | None = None

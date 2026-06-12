@@ -70,6 +70,43 @@ def _seeded_prefs(db: Session, user: User | None) -> dict | None:
     return out or None
 
 
+def _latest_trip(db: Session, session_id: str) -> Trip | None:
+    """The session's most recently created trip, matching the latest delivered plan."""
+    return db.query(Trip).filter(Trip.session_id == session_id).order_by(Trip.created_at.desc()).first()
+
+
+def _is_trip_update(is_edit: bool, existing_trip: Trip | None) -> bool:
+    """An edit updates the session's existing trip in place; a fresh plan, or an edit with no prior
+    trip to update, inserts a new one."""
+    return bool(is_edit and existing_trip is not None)
+
+
+def _upsert_trip(
+    db: Session, session_id: str, user: User | None, user_details: dict, itinerary_text: str, is_edit: bool
+) -> None:
+    """Save a delivered plan: update the existing trip in place for an edit, otherwise insert a new
+    one. Does not commit; the caller owns the transaction."""
+    existing = _latest_trip(db, session_id) if is_edit else None
+    if _is_trip_update(is_edit, existing):
+        existing.itinerary_text = itinerary_text
+        logger.info(f"Updated trip {existing.id} for session {session_id}")
+        return
+    if is_edit:
+        logger.warning(f"Edit for session {session_id} had no existing trip; inserting a new one")
+    db.add(
+        Trip(
+            session_id=session_id,
+            user_id=user.id if user else None,
+            destination=str(user_details.get("destination", "Unknown")),
+            duration=str(user_details.get("duration", "Unknown")),
+            budget=str(user_details.get("budget", "Unknown")),
+            interests=str(user_details.get("interests", "Unknown")),
+            itinerary_text=itinerary_text,
+        )
+    )
+    logger.info(f"Saved trip for session {session_id}")
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     chat_message: ChatMessage,
@@ -82,7 +119,7 @@ async def chat(
     user_text = chat_message.message.strip()
 
     try:
-        response_text, updated_history, _, user_details, is_itinerary = await orchestrator.chat(
+        response_text, updated_history, _, user_details, is_itinerary, is_edit = await orchestrator.chat(
             user_text, history, _seeded_prefs(db, user)
         )
 
@@ -94,18 +131,8 @@ async def chat(
 
         if is_itinerary:
             try:
-                new_trip = Trip(
-                    session_id=session_id,
-                    user_id=user.id if user else None,
-                    destination=str(user_details.get("destination", "Unknown")),
-                    duration=str(user_details.get("duration", "Unknown")),
-                    budget=str(user_details.get("budget", "Unknown")),
-                    interests=str(user_details.get("interests", "Unknown")),
-                    itinerary_text=response_text,
-                )
-                db.add(new_trip)
+                _upsert_trip(db, session_id, user, user_details, response_text, is_edit)
                 db.commit()
-                logger.info(f"Saved trip to {new_trip.destination}")
             except Exception as e:
                 logger.error(f"Failed to save trip: {e}")
 
@@ -155,6 +182,7 @@ async def chat_stream(
                     accumulated_data["completed"] = True
                     is_itinerary = event.get("is_itinerary", False)
                     accumulated_data["user_details"] = event.get("user_details", {})
+                    accumulated_data["is_edit"] = event.get("is_edit", False)
 
                 yield f"data: {json.dumps(event)}\n\n"
 
@@ -181,17 +209,14 @@ async def chat_stream(
                         flag_modified(active_session, "data")
 
                         if is_itinerary:
-                            ud = accumulated_data.get("user_details", {})
-                            new_trip = Trip(
-                                session_id=session_id,
-                                user_id=user.id if user else None,
-                                destination=str(ud.get("destination", "Unknown")),
-                                duration=str(ud.get("duration", "Unknown")),
-                                budget=str(ud.get("budget", "Unknown")),
-                                interests=str(ud.get("interests", "Unknown")),
-                                itinerary_text=accumulated_data["itinerary"],
+                            _upsert_trip(
+                                persist_db,
+                                session_id,
+                                user,
+                                accumulated_data.get("user_details", {}),
+                                accumulated_data["itinerary"],
+                                accumulated_data.get("is_edit", False),
                             )
-                            persist_db.add(new_trip)
 
                         persist_db.commit()
                         logger.info(f"Stream data persisted for session {session_id}")
