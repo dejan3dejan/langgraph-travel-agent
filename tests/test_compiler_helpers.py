@@ -107,8 +107,11 @@ def test_build_edit_prompt_includes_plan_and_instruction():
     assert "swap the Tuesday restaurant" in prompt
 
 
-def test_build_edit_prompt_constrains_change_and_handles_the_note():
+def test_build_edit_prompt_has_no_inline_note():
+    # The change summary is surfaced separately (the user's own instruction), so the prompt must not
+    # ask the model to bake an "Updated:" note into the plan; that would pollute the saved itinerary
+    # and stack across repeated edits.
     prompt = _build_edit_prompt("# Trip to Rome", "add a beach day").lower()
-    assert "only" in prompt  # apply only the requested change
-    assert "updated:" in prompt  # lead with a one-line change note
-    assert "replace" in prompt  # replace a prior note instead of stacking
+    assert "only" in prompt  # still: apply only the requested change
+    assert "markdown" in prompt  # still: raw markdown out
+    assert "updated:" not in prompt
