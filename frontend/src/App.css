@@ -190,10 +190,17 @@
 /* streaming plain text keeps its line breaks until the final markdown render */
 .stream-text { white-space: pre-wrap; }
 
-/* badge on an itinerary that was revised by an edit */
+/* badge + what-changed summary on an itinerary that was revised by an edit */
+.updated-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .updated-badge {
   display: inline-block;
-  margin-bottom: 12px;
   padding: 3px 10px;
   font-family: var(--font-mono);
   font-size: 0.62rem;
@@ -204,6 +211,12 @@
   background: var(--bg);
   border-radius: var(--r-full);
   box-shadow: var(--shadow-light);
+}
+
+.updated-summary {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-muted);
 }
 
 /* small disclaimer under a delivered itinerary */

@@ -7,7 +7,7 @@ const variants = {
   visible: { opacity: 1, y: 0 },
 }
 
-export default function Message({ role, content, isItinerary, isUpdated }) {
+export default function Message({ role, content, isItinerary, isUpdated, updatedSummary }) {
   const isUser = role === 'user'
   const isStream = role === 'ai-stream'
   // Render markdown only for a finalized itinerary. While streaming we show plain text with
@@ -30,7 +30,12 @@ export default function Message({ role, content, isItinerary, isUpdated }) {
       <div className="message__bubble">
         {showMarkdown ? (
           <div className="markdown-body">
-            {isUpdated && <span className="updated-badge">Updated</span>}
+            {isUpdated && (
+              <div className="updated-line">
+                <span className="updated-badge">Updated</span>
+                {updatedSummary && <span className="updated-summary">{updatedSummary}</span>}
+              </div>
+            )}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {content}
             </ReactMarkdown>

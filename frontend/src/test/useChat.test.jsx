@@ -256,3 +256,21 @@ test('C1: toUiMessages marks a later itinerary as updated', () => {
   expect(out[3].isItinerary).toBe(true)
   expect(out[3].isUpdated).toBe(true)
 })
+
+test('C1: an edit carries the change summary onto the finalized message', async () => {
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"token","content":"# Trip to Rome"}\n\n',
+      'data: {"type":"end","is_itinerary":true,"is_edit":true,"edit_summary":"swap the Tuesday restaurant"}\n\n',
+    ]),
+  )
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('swap the Tuesday restaurant')
+  })
+  await waitFor(() => {
+    const ai = result.current.messages.find((m) => m.role === 'ai' && m.isItinerary)
+    expect(ai?.updatedSummary).toBe('swap the Tuesday restaurant')
+  })
+})

@@ -43,6 +43,7 @@ export function useChat({ onItineraryDelivered } = {}) {
     let aiContent = ''
     let isItinerary = false
     let isEdit = false
+    let editSummary = ''
     let currentStatuses = []
     let lastActiveNode = null
 
@@ -138,6 +139,7 @@ export function useChat({ onItineraryDelivered } = {}) {
             case 'end': {
               isItinerary = event.is_itinerary || false
               isEdit = event.is_edit || false
+              editSummary = event.edit_summary || ''
               currentStatuses = currentStatuses.map(s => ({ ...s, state: 'done' }))
               setStatuses([...currentStatuses])
               break
@@ -158,7 +160,7 @@ export function useChat({ onItineraryDelivered } = {}) {
       if (aiContent) {
         setMessages(prev => {
           const filtered = prev.filter(m => m.role !== 'ai-stream')
-          return [...filtered, { role: 'ai', content: aiContent, isItinerary, isUpdated: isEdit }]
+          return [...filtered, { role: 'ai', content: aiContent, isItinerary, isUpdated: isEdit, updatedSummary: editSummary }]
         })
       }
 
