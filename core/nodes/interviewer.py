@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..llm import get_llm_for_role
 from ..logger import get_logger
-from ..schemas import UserPreferences
+from ..schemas import TurnIntent, UserPreferences
 from ..state import AgentState
 from ._utils import _in_destination, _origin_pending, log_usage
 
@@ -111,6 +111,28 @@ are estimates, not live quotes — say so if asked. If they want to change the t
 and ask what to adjust.
 """
 
+_EDIT_INTENT_TASK = """The traveler already has a full itinerary. Classify their LATEST message:
+
+- modify: they want the plan changed (swap, replace, add, remove, reorder, "make day 2 lighter",
+  "do the Vatican on Tuesday instead").
+- question: they are asking about the plan or destination with no change requested ("how accurate
+  are the prices?", "is the hotel central?", "what should I pack?").
+- unsure: a remark that might imply a change but is not an explicit request ("the Tuesday place
+  looks pricey", "day 2 feels packed"). When torn between modify and question, choose unsure.
+
+Use the recent conversation for context, since a terse message ("do that", "make it cheaper")
+refers to what was just discussed.
+
+RECENT CONVERSATION:
+{context}
+"""
+
+_CLARIFY_EDIT_TASK = """
+The traveler has an itinerary and just said something that might be a request to change it, but it
+is not clear. Ask ONE short, friendly question to find out whether they want a change and what to
+adjust. Do not change the plan yet.
+"""
+
 
 def _compute_season_suggestion(user_details: dict) -> str | None:
     """Generate season suggestion based on budget when no dates are specified."""
@@ -206,6 +228,35 @@ async def _answer_followup(messages: list[dict], itinerary: str, t0: float) -> d
     """Post-plan mode: answer a guarded question about the existing itinerary."""
     chat_llm = get_llm_for_role("interviewer")
     system = ATLAS_PERSONA + "\n" + _FOLLOWUP_TASK.format(itinerary=itinerary)
+    lc_messages = [SystemMessage(content=system)] + _to_lc_messages(messages)
+    response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
+    return {
+        "messages": [{"role": "model", "content": response.content}],
+        "next_node": "interviewer",
+        "debug_logs": [log_usage("interviewer", t0, response)],
+    }
+
+
+async def _classify_intent(messages: list[dict]) -> str:
+    """Classify a post-plan turn as modify, question, or unsure. Recent context is included because
+    terse asks only resolve against the prior turns. Any failure degrades to 'question' so a flaky
+    call never silently rewrites the plan."""
+    classifier = get_llm_for_role("extraction").with_structured_output(TurnIntent)
+    recent = messages[-6:]
+    context = "\n".join(f"{m.get('role')}: {(m.get('content') or '')[:400]}" for m in recent)
+    try:
+        result = await classifier.ainvoke([SystemMessage(content=_EDIT_INTENT_TASK.format(context=context))])
+        return result.intent
+    except Exception as e:
+        logger.warning(f"Edit-intent classification failed, treating as a question: {e}")
+        return "question"
+
+
+async def _ask_edit_confirmation(messages: list[dict], t0: float) -> dict:
+    """Ambiguous post-plan turn: ask one question to pin down the change instead of guessing and
+    rewriting the plan. Stays in the interview so the next turn carries a concrete instruction."""
+    chat_llm = get_llm_for_role("interviewer")
+    system = ATLAS_PERSONA + "\n" + _CLARIFY_EDIT_TASK
     lc_messages = [SystemMessage(content=system)] + _to_lc_messages(messages)
     response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
     return {
@@ -347,6 +398,11 @@ async def interviewer_node(state: AgentState) -> dict:
         itinerary = _latest_itinerary(messages)
         is_new_trip = bool(dest) and dest.lower() not in itinerary.lower()
         if not is_new_trip:
+            action = _post_plan_action(await _classify_intent(messages), is_new_trip)
+            if action == "edit":
+                return _route_edit(messages, itinerary, user_details, t0)
+            if action == "clarify":
+                return await _ask_edit_confirmation(messages, t0)
             return await _answer_followup(messages, itinerary, t0)
 
     # 2. Deterministic decision (pure helper). This is what prevents looping: one slot per turn.

@@ -103,3 +103,14 @@ class ItineraryCritique(BaseModel):
     feedback: str = Field(description="Detailed feedback on the itinerary")
     score: int = Field(description="Score from 1-10")
     missing_data: list[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
+
+
+class TurnIntent(BaseModel):
+    """How to handle a turn that arrives after a plan was delivered."""
+
+    intent: Literal["modify", "question", "unsure"] = Field(
+        description=(
+            "modify = change the existing plan; question = ask about it without changing it; "
+            "unsure = ambiguous, ask one clarifying question before doing anything"
+        )
+    )

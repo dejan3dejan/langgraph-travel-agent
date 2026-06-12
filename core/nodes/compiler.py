@@ -187,11 +187,60 @@ def _transport_section(in_destination: bool, start_location: str, destination: s
     )
 
 
+def _build_edit_prompt(base_itinerary: str, edit_instruction: str) -> str:
+    """Prompt for revising a delivered itinerary in place: apply only the requested change, keep the
+    rest of the plan identical, and lead with one line noting what changed (replacing any prior note
+    so repeated edits don't stack notes)."""
+    return f"""You are revising a travel itinerary the traveler already has. Apply ONLY the change
+they ask for, plus any small fix it forces (for example the surrounding day's flow). Keep every
+other day, heading, and detail exactly as it is.
+
+EXISTING ITINERARY:
+{base_itinerary}
+
+REQUESTED CHANGE:
+{edit_instruction}
+
+Begin the output with one line summarizing what you changed, in this exact form:
+> **Updated:** <one sentence>
+If the existing itinerary already starts with such a line, REPLACE it rather than adding another.
+Then output the full revised itinerary in the same Markdown format, starting with its title.
+
+Output ONLY the raw Markdown. No preamble, no code fences."""
+
+
+async def _compile_edit(state: AgentState, t0: float) -> dict:
+    """Edit mode: stream a revised itinerary from the prior plan and the change instruction. Skips
+    research and the critic (next_node 'approved'); the critic counts empty research as missing data
+    and would otherwise force a full re-research of a plan we deliberately did not re-research."""
+    await adispatch_custom_event("reset_itinerary", {"message": "Updating your itinerary..."})
+    chat_llm = get_llm_for_role("compiler")
+    prompt = _build_edit_prompt(state["base_itinerary"], state["edit_instruction"])
+    response = await chat_llm.ainvoke(
+        [
+            SystemMessage(content="You are a Travel Editor revising an existing itinerary."),
+            HumanMessage(content=prompt),
+        ],
+        config={"tags": ["final_itinerary"]},
+    )
+    return {
+        "draft_itinerary": response.content,
+        "iteration_count": state.get("iteration_count", 0) + 1,
+        "next_node": "approved",
+        "debug_logs": [log_usage("compiler", t0, response)],
+    }
+
+
 # Compiler node
 
 
 async def compiler_node(state: AgentState) -> dict:
     t0 = time.time()
+
+    # A post-plan edit revises the prior itinerary in place rather than recompiling from research.
+    if state.get("edit_instruction") and state.get("base_itinerary"):
+        return await _compile_edit(state, t0)
+
     await adispatch_custom_event("reset_itinerary", {"message": "Refining itinerary..."})
 
     logger.info("Writing itinerary draft with smart zone grouping...")

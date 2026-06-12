@@ -5,6 +5,7 @@ from core.nodes.compiler import (
     _accommodation_format_section,
     _anchor_coords,
     _base_label,
+    _build_edit_prompt,
     _origin_known,
     _transport_section,
 )
@@ -95,3 +96,19 @@ def test_transport_arriving_when_origin_unknown():
         assert "Arriving in Rome" in s
         assert "Getting There" not in s
         assert "current location" not in s.lower()
+
+
+# edit mode (revise an existing plan)
+
+
+def test_build_edit_prompt_includes_plan_and_instruction():
+    prompt = _build_edit_prompt("# Trip to Rome\n## Day 1: Forum", "swap the Tuesday restaurant")
+    assert "# Trip to Rome" in prompt
+    assert "swap the Tuesday restaurant" in prompt
+
+
+def test_build_edit_prompt_constrains_change_and_handles_the_note():
+    prompt = _build_edit_prompt("# Trip to Rome", "add a beach day").lower()
+    assert "only" in prompt  # apply only the requested change
+    assert "updated:" in prompt  # lead with a one-line change note
+    assert "replace" in prompt  # replace a prior note instead of stacking

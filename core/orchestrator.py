@@ -55,6 +55,7 @@ class TravelOrchestrator:
 
         produced_itinerary = False
         captured_user_details = {}
+        captured_is_edit = False
         marker = "PLANNING_STARTED"  # interviewer trigger token; must never reach the user
         pending = ""
         status_map = {
@@ -79,11 +80,15 @@ class TravelOrchestrator:
                     yield {"type": "status", "content": msg, "node": node_name}
 
             elif kind == "on_chain_end" and event.get("name") == "interviewer":
-                # The interviewer is the node that finalizes user_details (when it starts planning).
-                # Capture it so the trip can be saved with the real destination, not a placeholder.
+                # The interviewer finalizes user_details (when it starts planning) and flags an edit.
+                # Capture both so the trip saves with the real destination, and the edit path can
+                # update the existing trip instead of inserting a new one.
                 out = event["data"].get("output")
-                if isinstance(out, dict) and out.get("user_details"):
-                    captured_user_details = out["user_details"]
+                if isinstance(out, dict):
+                    if out.get("user_details"):
+                        captured_user_details = out["user_details"]
+                    if out.get("is_edit"):
+                        captured_is_edit = True
 
             elif kind == "on_chat_model_stream":
                 if "final_itinerary" in event.get("tags", []):
@@ -115,4 +120,9 @@ class TravelOrchestrator:
         if leftover:
             yield {"type": "token", "content": leftover}
 
-        yield {"type": "end", "is_itinerary": produced_itinerary, "user_details": captured_user_details}
+        yield {
+            "type": "end",
+            "is_itinerary": produced_itinerary,
+            "user_details": captured_user_details,
+            "is_edit": captured_is_edit,
+        }
