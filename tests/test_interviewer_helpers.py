@@ -7,9 +7,12 @@ from core.nodes.interviewer import (
     _intent_vague,
     _is_ready,
     _latest_itinerary,
+    _latest_user_message,
     _next_question,
     _plan_in_history,
+    _post_plan_action,
     _question_text,
+    _route_edit,
 )
 
 
@@ -274,3 +277,58 @@ def test_latest_itinerary_returns_most_recent():
 
 def test_latest_itinerary_empty_when_none():
     assert _latest_itinerary([{"role": "user", "content": "hi"}]) == ""
+
+
+# edit-intent routing (post-plan)
+
+
+def test_latest_user_message_returns_last_user_turn():
+    msgs = [
+        {"role": "user", "content": "plan rome"},
+        {"role": "model", "content": "# Trip to Rome"},
+        {"role": "user", "content": "swap the Tuesday restaurant"},
+    ]
+    assert _latest_user_message(msgs) == "swap the Tuesday restaurant"
+
+
+def test_latest_user_message_empty_when_no_user_turn():
+    assert _latest_user_message([{"role": "model", "content": "hi"}]) == ""
+
+
+def test_post_plan_action_new_trip_takes_priority():
+    # a newly named destination re-plans regardless of the classified intent
+    assert _post_plan_action("modify", is_new_trip=True) == "new_trip"
+    assert _post_plan_action("question", is_new_trip=True) == "new_trip"
+
+
+def test_post_plan_action_modify_routes_to_edit():
+    assert _post_plan_action("modify", is_new_trip=False) == "edit"
+
+
+def test_post_plan_action_unsure_routes_to_clarify():
+    assert _post_plan_action("unsure", is_new_trip=False) == "clarify"
+
+
+def test_post_plan_action_question_routes_to_followup():
+    assert _post_plan_action("question", is_new_trip=False) == "followup"
+
+
+def test_post_plan_action_unknown_intent_defaults_to_followup():
+    # an unrecognized label must never silently rewrite the plan
+    assert _post_plan_action("garbage", is_new_trip=False) == "followup"
+
+
+def test_route_edit_carries_instruction_and_plan_to_compiler():
+    msgs = [
+        {"role": "user", "content": "plan rome"},
+        {"role": "model", "content": "# Trip to Rome\n## Day 1"},
+        {"role": "user", "content": "swap the Tuesday restaurant"},
+    ]
+    out = _route_edit(msgs, "# Trip to Rome\n## Day 1", {"destination": "Rome"}, t0=0.0)
+    assert out["next_node"] == "compiler"
+    assert out["is_edit"] is True
+    assert out["edit_instruction"] == "swap the Tuesday restaurant"
+    assert out["base_itinerary"].startswith("# Trip to Rome")
+    assert out["user_details"] == {"destination": "Rome"}
+    # no user-facing model text here: the compiler streams the revised plan
+    assert "messages" not in out

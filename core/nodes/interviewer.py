@@ -155,6 +155,40 @@ def _latest_itinerary(messages: list[dict]) -> str:
     return ""
 
 
+def _latest_user_message(messages: list[dict]) -> str:
+    """The most recent user turn: the edit instruction when the user is modifying a delivered plan."""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            return m.get("content", "")
+    return ""
+
+
+def _post_plan_action(intent: str, is_new_trip: bool) -> str:
+    """Route a post-plan turn from the classified intent. A newly named destination always re-plans;
+    otherwise modify -> edit, unsure -> clarify, and anything else (including an unrecognized label)
+    falls back to a plain follow-up answer, so we never rewrite the plan on a guess."""
+    if is_new_trip:
+        return "new_trip"
+    if intent == "modify":
+        return "edit"
+    if intent == "unsure":
+        return "clarify"
+    return "followup"
+
+
+def _route_edit(messages: list[dict], itinerary: str, user_details: dict, t0: float) -> dict:
+    """Hand a modification to the compiler: carry the prior plan and the change instruction in state
+    and skip research. No model message here; the compiler streams the revised itinerary."""
+    return {
+        "edit_instruction": _latest_user_message(messages),
+        "base_itinerary": itinerary,
+        "is_edit": True,
+        "user_details": user_details,
+        "next_node": "compiler",
+        "debug_logs": [log_usage("interviewer", t0)],
+    }
+
+
 async def _ask_for(question_key: str, user_details: dict, messages: list[dict], t0: float) -> dict:
     """Stream a warm, guarded question for the next missing slot; stay in the interview."""
     chat_llm = get_llm_for_role("interviewer")

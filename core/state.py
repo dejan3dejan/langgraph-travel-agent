@@ -25,4 +25,10 @@ class AgentState(TypedDict):
     iteration_count: int
     next_node: str
 
+    # Itinerary edit flow: a post-plan modification carries the prior plan and the change
+    # instruction to the compiler, which revises in place instead of re-researching.
+    edit_instruction: str | None
+    base_itinerary: str | None
+    is_edit: bool
+
     debug_logs: Annotated[list[dict[str, Any]], operator.add]
