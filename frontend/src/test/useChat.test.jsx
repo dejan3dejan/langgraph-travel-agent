@@ -209,3 +209,50 @@ test('A1: loadSession hydrates messages and adopts the session', () => {
   expect(result.current.messages).toEqual([{ role: 'user', content: 'hi' }])
   expect(localStorage.getItem('atlas_session_id')).toBe('sess-9')
 })
+
+test('C1: an edit end marks the finalized itinerary as updated', async () => {
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"token","content":"# Trip to Rome"}\n\n',
+      'data: {"type":"end","is_itinerary":true,"is_edit":true}\n\n',
+    ]),
+  )
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('swap the Tuesday restaurant')
+  })
+  await waitFor(() => {
+    const ai = result.current.messages.find((m) => m.role === 'ai' && m.isItinerary)
+    expect(ai?.isUpdated).toBe(true)
+  })
+})
+
+test('C1: onItineraryDelivered receives isEdit', async () => {
+  const cb = vi.fn()
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"token","content":"# Trip to Rome"}\n\n',
+      'data: {"type":"end","is_itinerary":true,"is_edit":true}\n\n',
+    ]),
+  )
+  const { result } = renderHook(() => useChat({ onItineraryDelivered: cb }))
+  await act(async () => {
+    await result.current.sendMessage('swap the Tuesday restaurant')
+  })
+  await waitFor(() => expect(cb).toHaveBeenCalledWith({ isEdit: true }))
+})
+
+test('C1: toUiMessages marks a later itinerary as updated', () => {
+  const out = toUiMessages([
+    { role: 'user', content: 'plan rome' },
+    { role: 'model', content: '# Trip to Rome\n## Day 1' },
+    { role: 'user', content: 'swap the restaurant' },
+    { role: 'model', content: '# Trip to Rome\n## Day 1 revised' },
+  ])
+  expect(out[1].isItinerary).toBe(true)
+  expect(out[1].isUpdated).toBeUndefined()
+  expect(out[3].isItinerary).toBe(true)
+  expect(out[3].isUpdated).toBe(true)
+})

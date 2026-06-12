@@ -19,11 +19,12 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [signupPrompt, setSignupPrompt] = useState(false)
   const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
-    onItineraryDelivered: () => {
+    onItineraryDelivered: ({ isEdit } = {}) => {
       if (auth.user) {
-        setToast('Trip saved to your account.')
+        setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
         setTimeout(() => setToast(null), 4000)
-      } else {
+      } else if (!isEdit) {
+        // Only nudge signup on a first plan, not on every follow-up edit.
         setSignupPrompt(true)
       }
     },
@@ -107,7 +108,7 @@ export default function App() {
       ) : (
         <div className="chat-area">
           {messages.map((m, i) => (
-            <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} />
+            <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} isUpdated={m.isUpdated} />
           ))}
           <StatusBar statuses={statuses} />
           <div ref={chatEndRef} />

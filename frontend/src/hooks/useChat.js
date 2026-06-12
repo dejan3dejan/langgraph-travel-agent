@@ -3,15 +3,16 @@ import { useState, useRef, useCallback } from 'react'
 // Map stored {user, model} history into UI message shape, marking itinerary messages so they
 // render as markdown.
 export function toUiMessages(history) {
-  return (history || []).map((m) =>
-    m.role === 'user'
-      ? { role: 'user', content: m.content }
-      : {
-          role: 'ai',
-          content: m.content,
-          isItinerary: m.content.includes('## Day') || m.content.includes('Trip to'),
-        },
-  )
+  let seenItinerary = false
+  return (history || []).map((m) => {
+    if (m.role === 'user') return { role: 'user', content: m.content }
+    const isItinerary = m.content.includes('## Day') || m.content.includes('Trip to')
+    const msg = { role: 'ai', content: m.content, isItinerary }
+    // A later itinerary in the same history is a revision of an earlier one, so mark it updated.
+    if (isItinerary && seenItinerary) msg.isUpdated = true
+    if (isItinerary) seenItinerary = true
+    return msg
+  })
 }
 
 export function useChat({ onItineraryDelivered } = {}) {
@@ -41,6 +42,7 @@ export function useChat({ onItineraryDelivered } = {}) {
 
     let aiContent = ''
     let isItinerary = false
+    let isEdit = false
     let currentStatuses = []
     let lastActiveNode = null
 
@@ -135,6 +137,7 @@ export function useChat({ onItineraryDelivered } = {}) {
 
             case 'end': {
               isItinerary = event.is_itinerary || false
+              isEdit = event.is_edit || false
               currentStatuses = currentStatuses.map(s => ({ ...s, state: 'done' }))
               setStatuses([...currentStatuses])
               break
@@ -155,11 +158,11 @@ export function useChat({ onItineraryDelivered } = {}) {
       if (aiContent) {
         setMessages(prev => {
           const filtered = prev.filter(m => m.role !== 'ai-stream')
-          return [...filtered, { role: 'ai', content: aiContent, isItinerary }]
+          return [...filtered, { role: 'ai', content: aiContent, isItinerary, isUpdated: isEdit }]
         })
       }
 
-      if (isItinerary) onItineraryRef.current?.()
+      if (isItinerary) onItineraryRef.current?.({ isEdit })
     } catch (err) {
       if (err.name === 'AbortError') {
         // Stopped mid-stream: keep whatever was generated as a final message so there is no

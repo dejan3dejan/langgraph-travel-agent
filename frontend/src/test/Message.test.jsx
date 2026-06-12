@@ -10,3 +10,13 @@ test('a plain chat reply does not show the estimates note', () => {
   render(<Message role="ai" content="How many days are you planning?" />)
   expect(screen.queryByText(/estimates/i)).not.toBeInTheDocument()
 })
+
+test('an edited itinerary shows an Updated badge', () => {
+  render(<Message role="ai" isItinerary isUpdated content={'# Trip to Rome\n## Day 1'} />)
+  expect(screen.getByText('Updated')).toBeInTheDocument()
+})
+
+test('a first-time itinerary shows no Updated badge', () => {
+  render(<Message role="ai" isItinerary content={'# Trip to Rome\n## Day 1'} />)
+  expect(screen.queryByText('Updated')).not.toBeInTheDocument()
+})

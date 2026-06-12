@@ -190,6 +190,22 @@
 /* streaming plain text keeps its line breaks until the final markdown render */
 .stream-text { white-space: pre-wrap; }
 
+/* badge on an itinerary that was revised by an edit */
+.updated-badge {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 3px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: var(--r-full);
+  box-shadow: var(--shadow-light);
+}
+
 /* small disclaimer under a delivered itinerary */
 .estimate-note {
   margin-top: 1rem;
