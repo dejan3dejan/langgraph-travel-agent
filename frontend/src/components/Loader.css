@@ -68,6 +68,29 @@
   stroke-width: 1.5;
 }
 
+.loader__sweep {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loader-spin 1.8s linear infinite;
+}
+
+.loader__sweep-wedge {
+  fill: var(--accent);
+  opacity: 0.22;
+}
+
+.loader__sweep-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.loader__blip {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loader-blip 1.8s ease-out infinite;
+}
+
 @keyframes loader-meridian {
   0% { transform: scaleX(1); }
   50% { transform: scaleX(0.06); }
@@ -80,13 +103,28 @@
   100% { transform: rotate(-28deg); }
 }
 
+@keyframes loader-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes loader-blip {
+  0% { opacity: 0; transform: scale(0.3); }
+  40% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+
 /* Honor reduced-motion: hold the instrument still rather than spin it. */
 @media (prefers-reduced-motion: reduce) {
   .loader__meridian,
-  .loader__needle {
+  .loader__needle,
+  .loader__sweep,
+  .loader__blip {
     animation: none;
   }
   .loader__meridian {
     transform: scaleX(0.4);
+  }
+  .loader__blip {
+    opacity: 1;
   }
 }

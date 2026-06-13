@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { stageFor } from '../planningStages'
 
 // Map stored {user, model} history into UI message shape, marking itinerary messages so they
 // render as markdown.
@@ -24,6 +25,7 @@ export function useChat({ onItineraryDelivered } = {}) {
   const [statuses, setStatuses] = useState([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [itineraryGeo, setItineraryGeo] = useState(null)
+  const [planningStage, setPlanningStage] = useState(null)
   const abortRef = useRef(null)
   const sessionIdRef = useRef(localStorage.getItem('atlas_session_id') || null)
   const lastTextRef = useRef('')
@@ -116,6 +118,9 @@ export function useChat({ onItineraryDelivered } = {}) {
                 { node: event.node, label: event.content, state: 'active' },
               ]
               setStatuses([...currentStatuses])
+              // Themed loader caption for this stage, one line picked at random from its pool.
+              const stage = stageFor(event.node)
+              setPlanningStage({ variant: stage.variant, line: stage.lines[Math.floor(Math.random() * stage.lines.length)] })
               break
             }
 
@@ -185,6 +190,7 @@ export function useChat({ onItineraryDelivered } = {}) {
     } finally {
       setIsStreaming(false)
       setStatuses([])  // clear progress pills once the turn ends (no lingering "thinking")
+      setPlanningStage(null)
       abortRef.current = null
     }
   }, [isStreaming])
@@ -199,6 +205,7 @@ export function useChat({ onItineraryDelivered } = {}) {
     setMessages([])
     setStatuses([])
     setItineraryGeo(null)
+    setPlanningStage(null)
   }, [])
 
   // Render a saved trip's itinerary as a read-only view (used by the trips sidebar).
@@ -221,5 +228,5 @@ export function useChat({ onItineraryDelivered } = {}) {
     if (lastTextRef.current) return sendMessage(lastTextRef.current, { isRetry: true })
   }, [sendMessage])
 
-  return { messages, statuses, isStreaming, itineraryGeo, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry }
+  return { messages, statuses, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry }
 }

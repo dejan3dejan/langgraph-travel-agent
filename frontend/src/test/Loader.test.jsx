@@ -17,3 +17,9 @@ test('renders the compass instrument when asked', () => {
   expect(container.querySelector('.loader--compass')).toBeInTheDocument()
   expect(container.querySelector('.loader--globe')).not.toBeInTheDocument()
 })
+
+test('renders the radar instrument when asked', () => {
+  const { container } = render(<Loader variant="radar" />)
+  expect(container.querySelector('.loader--radar')).toBeInTheDocument()
+  expect(container.querySelector('.loader__sweep')).toBeInTheDocument()
+})

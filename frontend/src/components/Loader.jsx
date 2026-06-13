@@ -28,7 +28,25 @@ function Compass() {
   )
 }
 
-const INSTRUMENTS = { globe: Globe, compass: Compass }
+// A radar sweep with a pulsing blip, for the route-mapping stage.
+function Radar() {
+  return (
+    <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
+      <circle cx="28" cy="28" r="22" className="loader__rim" fill="none" />
+      <circle cx="28" cy="28" r="14" className="loader__lat" fill="none" />
+      <circle cx="28" cy="28" r="7" className="loader__lat" fill="none" />
+      <line x1="28" y1="6" x2="28" y2="50" className="loader__lat" />
+      <line x1="6" y1="28" x2="50" y2="28" className="loader__lat" />
+      <g className="loader__sweep">
+        <path d="M28 28 L28 6 A22 22 0 0 1 47 17 Z" className="loader__sweep-wedge" />
+        <line x1="28" y1="28" x2="28" y2="6" className="loader__sweep-line" />
+      </g>
+      <circle cx="40" cy="18" r="3" className="loader__blip" />
+    </svg>
+  )
+}
+
+const INSTRUMENTS = { globe: Globe, compass: Compass, radar: Radar }
 
 export default function Loader({ variant = 'globe', label = 'Charting your trip' }) {
   const Instrument = INSTRUMENTS[variant] || Globe

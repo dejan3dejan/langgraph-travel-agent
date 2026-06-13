@@ -1,5 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useChat, toUiMessages } from '../hooks/useChat'
+import { stageFor } from '../planningStages'
 
 function encode(s) {
   return new TextEncoder().encode(s)
@@ -343,4 +344,33 @@ test('C2: newChat clears the map', async () => {
   await waitFor(() => expect(result.current.itineraryGeo).toEqual(GEO))
   act(() => result.current.newChat())
   expect(result.current.itineraryGeo).toBeNull()
+})
+
+// A reader that yields one chunk then hangs, so we can inspect mid-stream state.
+function hangingFetch(line) {
+  return vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    body: {
+      getReader: () => {
+        let i = 0
+        return {
+          read: () =>
+            i === 0
+              ? (i++, Promise.resolve({ done: false, value: encode(line) }))
+              : new Promise(() => {}),
+        }
+      },
+    },
+  }))
+}
+
+test('loader: a status event sets a themed planning stage (instrument + a line from its pool)', async () => {
+  vi.stubGlobal('fetch', hangingFetch('data: {"type":"status","content":"x","node":"logistics"}\n\n'))
+  const { result } = renderHook(() => useChat())
+  act(() => {
+    result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(result.current.planningStage?.variant).toBe('radar'))
+  expect(stageFor('logistics').lines).toContain(result.current.planningStage.line)
 })

@@ -6,7 +6,6 @@ import { useTrips } from './hooks/useTrips'
 import Header from './components/Header'
 import Welcome from './components/Welcome'
 import Message from './components/Message'
-import StatusBar from './components/StatusBar'
 import InputBar from './components/InputBar'
 import AuthModal from './components/AuthModal'
 import Sidebar from './components/Sidebar'
@@ -22,7 +21,7 @@ export default function App() {
   const auth = useAuth()
   const [toast, setToast] = useState(null)
   const [signupPrompt, setSignupPrompt] = useState(false)
-  const { messages, statuses, isStreaming, itineraryGeo, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
+  const { messages, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
     onItineraryDelivered: ({ isEdit } = {}) => {
       if (auth.user) {
         setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
@@ -41,7 +40,7 @@ export default function App() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, statuses])
+  }, [messages, planningStage])
 
   useEffect(() => {
     const onExpired = () => {
@@ -121,8 +120,9 @@ export default function App() {
               <Map geo={itineraryGeo} />
             </Suspense>
           )}
-          {planning && <Loader variant="globe" label="Charting your trip" />}
-          <StatusBar statuses={statuses} />
+          {planning && (
+            <Loader variant={planningStage?.variant || 'compass'} label={planningStage?.line || 'Charting your trip'} />
+          )}
           <div ref={chatEndRef} />
         </div>
       )}
