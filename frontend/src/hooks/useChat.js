@@ -23,6 +23,7 @@ export function useChat({ onItineraryDelivered } = {}) {
   const [messages, setMessages] = useState([])
   const [statuses, setStatuses] = useState([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [itineraryGeo, setItineraryGeo] = useState(null)
   const abortRef = useRef(null)
   const sessionIdRef = useRef(localStorage.getItem('atlas_session_id') || null)
   const lastTextRef = useRef('')
@@ -140,6 +141,8 @@ export function useChat({ onItineraryDelivered } = {}) {
               isItinerary = event.is_itinerary || false
               isEdit = event.is_edit || false
               editSummary = event.edit_summary || ''
+              // A fresh plan refreshes the map; an edit re-geocodes nothing, so keep the prior map.
+              if (isItinerary && !isEdit) setItineraryGeo(event.geo || { hotel: null, days: [] })
               currentStatuses = currentStatuses.map(s => ({ ...s, state: 'done' }))
               setStatuses([...currentStatuses])
               break
@@ -195,25 +198,28 @@ export function useChat({ onItineraryDelivered } = {}) {
     localStorage.removeItem('atlas_session_id')
     setMessages([])
     setStatuses([])
+    setItineraryGeo(null)
   }, [])
 
   // Render a saved trip's itinerary as a read-only view (used by the trips sidebar).
-  const showItinerary = useCallback((text) => {
+  const showItinerary = useCallback((text, geo) => {
     setMessages([{ role: 'ai', content: text, isItinerary: true }])
     setStatuses([])
+    setItineraryGeo(geo || null)
   }, [])
 
   // Resume a saved conversation: adopt its session id and hydrate the messages.
-  const loadSession = useCallback((sessionId, history) => {
+  const loadSession = useCallback((sessionId, history, geo) => {
     sessionIdRef.current = sessionId
     localStorage.setItem('atlas_session_id', sessionId)
     setMessages(toUiMessages(history))
     setStatuses([])
+    setItineraryGeo(geo || null)
   }, [])
 
   const retry = useCallback(() => {
     if (lastTextRef.current) return sendMessage(lastTextRef.current, { isRetry: true })
   }, [sendMessage])
 
-  return { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry }
+  return { messages, statuses, isStreaming, itineraryGeo, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry }
 }

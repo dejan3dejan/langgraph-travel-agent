@@ -274,3 +274,73 @@ test('C1: an edit carries the change summary onto the finalized message', async 
     expect(ai?.updatedSummary).toBe('swap the Tuesday restaurant')
   })
 })
+
+const GEO = {
+  hotel: null,
+  days: [{ day: 1, zone: 'near', label: 'Walkable', places: [{ name: 'X', lat: 1, lon: 2, kind: 'activity' }] }],
+}
+
+function planThenEnd(extra) {
+  return streamingFetch([
+    'data: {"type":"token","content":"# Trip to Rome"}\n\n',
+    `data: ${JSON.stringify({ type: 'end', is_itinerary: true, ...extra })}\n\n`,
+  ])
+}
+
+test('C2: an itinerary end carrying geo exposes it for the map', async () => {
+  vi.stubGlobal('fetch', planThenEnd({ geo: GEO }))
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(result.current.itineraryGeo).toEqual(GEO))
+})
+
+test('C2: an edit end keeps the existing map (no fresh coords)', async () => {
+  vi.stubGlobal('fetch', planThenEnd({ geo: GEO }))
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(result.current.itineraryGeo).toEqual(GEO))
+
+  vi.stubGlobal('fetch', planThenEnd({ is_edit: true, geo: null }))
+  await act(async () => {
+    await result.current.sendMessage('swap the restaurant')
+  })
+  await waitFor(() => expect(result.current.messages.some((m) => m.isUpdated)).toBe(true))
+  expect(result.current.itineraryGeo).toEqual(GEO)
+})
+
+test('C2: a plain follow-up reply does not wipe the map', async () => {
+  vi.stubGlobal('fetch', planThenEnd({ geo: GEO }))
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(result.current.itineraryGeo).toEqual(GEO))
+
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"token","content":"Prices are estimates."}\n\n',
+      'data: {"type":"end","is_itinerary":false}\n\n',
+    ]),
+  )
+  await act(async () => {
+    await result.current.sendMessage('how accurate are prices?')
+  })
+  await waitFor(() => expect(result.current.messages.some((m) => m.content.includes('estimates'))).toBe(true))
+  expect(result.current.itineraryGeo).toEqual(GEO)
+})
+
+test('C2: newChat clears the map', async () => {
+  vi.stubGlobal('fetch', planThenEnd({ geo: GEO }))
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(result.current.itineraryGeo).toEqual(GEO))
+  act(() => result.current.newChat())
+  expect(result.current.itineraryGeo).toBeNull()
+})

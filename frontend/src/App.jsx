@@ -13,12 +13,13 @@ import Sidebar from './components/Sidebar'
 import Landing from './components/Landing'
 import Toast from './components/Toast'
 import SignupPrompt from './components/SignupPrompt'
+import Map from './components/Map'
 
 export default function App() {
   const auth = useAuth()
   const [toast, setToast] = useState(null)
   const [signupPrompt, setSignupPrompt] = useState(false)
-  const { messages, statuses, isStreaming, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
+  const { messages, statuses, isStreaming, itineraryGeo, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
     onItineraryDelivered: ({ isEdit } = {}) => {
       if (auth.user) {
         setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
@@ -64,14 +65,14 @@ export default function App() {
     if (detail?.session_id) {
       const session = await trips.getSession(detail.session_id)
       if (session) {
-        loadSession(session.session_id, session.history)
+        loadSession(session.session_id, session.history, detail.geo)
         setSidebarOpen(false)
         return
       }
     }
     // Fallback: no resumable session, show the itinerary read-only.
     if (detail?.itinerary_text) {
-      showItinerary(detail.itinerary_text)
+      showItinerary(detail.itinerary_text, detail.geo)
       setSidebarOpen(false)
     }
   }
@@ -110,6 +111,7 @@ export default function App() {
           {messages.map((m, i) => (
             <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} isUpdated={m.isUpdated} updatedSummary={m.updatedSummary} />
           ))}
+          {itineraryGeo && <Map geo={itineraryGeo} />}
           <StatusBar statuses={statuses} />
           <div ref={chatEndRef} />
         </div>
