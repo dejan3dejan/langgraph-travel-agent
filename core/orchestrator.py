@@ -58,6 +58,7 @@ class TravelOrchestrator:
         captured_user_details = {}
         captured_is_edit = False
         captured_edit_summary = ""
+        captured_geo = None
         marker = "PLANNING_STARTED"  # interviewer trigger token; must never reach the user
         pending = ""
         status_map = {
@@ -95,6 +96,13 @@ class TravelOrchestrator:
                     if out.get("edit_instruction"):
                         captured_edit_summary = out["edit_instruction"]
 
+            elif kind == "on_chain_end" and event.get("name") == "compiler":
+                # The compiler emits the structured map payload (per-day coords) on a fresh plan; an
+                # in-place edit returns none, so the client keeps the map it already has.
+                out = event["data"].get("output")
+                if isinstance(out, dict) and out.get("itinerary_geo"):
+                    captured_geo = out["itinerary_geo"]
+
             elif kind == "on_chat_model_stream":
                 if "final_itinerary" in event.get("tags", []):
                     content = event["data"]["chunk"].content
@@ -131,4 +139,5 @@ class TravelOrchestrator:
             "user_details": captured_user_details,
             "is_edit": captured_is_edit,
             "edit_summary": captured_edit_summary,
+            "geo": captured_geo,
         }

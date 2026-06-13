@@ -74,6 +74,7 @@ class TripDetail(TripSummary):
     interests: str | None
     itinerary_text: str | None
     session_id: str | None
+    geo: dict | None = None
 
 
 class SessionSummary(BaseModel):
@@ -264,6 +265,7 @@ async def get_trip(trip_id: str, user: User = Depends(require_user), db: Session
         interests=trip.interests,
         itinerary_text=trip.itinerary_text,
         session_id=trip.session_id,
+        geo=trip.geo,
         created_at=trip.created_at.isoformat(),
     )
 

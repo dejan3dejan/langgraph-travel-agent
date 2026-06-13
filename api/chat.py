@@ -81,14 +81,27 @@ def _is_trip_update(is_edit: bool, existing_trip: Trip | None) -> bool:
     return bool(is_edit and existing_trip is not None)
 
 
+def _merge_geo(existing_geo: dict | None, new_geo: dict | None) -> dict | None:
+    """Keep the prior map when an edit carries no fresh coordinates (an in-place text edit doesn't
+    re-geocode); otherwise take the new payload."""
+    return new_geo if new_geo is not None else existing_geo
+
+
 def _upsert_trip(
-    db: Session, session_id: str, user: User | None, user_details: dict, itinerary_text: str, is_edit: bool
+    db: Session,
+    session_id: str,
+    user: User | None,
+    user_details: dict,
+    itinerary_text: str,
+    is_edit: bool,
+    geo: dict | None = None,
 ) -> None:
     """Save a delivered plan: update the existing trip in place for an edit, otherwise insert a new
     one. Does not commit; the caller owns the transaction."""
     existing = _latest_trip(db, session_id) if is_edit else None
     if _is_trip_update(is_edit, existing):
         existing.itinerary_text = itinerary_text
+        existing.geo = _merge_geo(existing.geo, geo)
         logger.info(f"Updated trip {existing.id} for session {session_id}")
         return
     if is_edit:
@@ -102,6 +115,7 @@ def _upsert_trip(
             budget=str(user_details.get("budget", "Unknown")),
             interests=str(user_details.get("interests", "Unknown")),
             itinerary_text=itinerary_text,
+            geo=geo,
         )
     )
     logger.info(f"Saved trip for session {session_id}")
@@ -183,6 +197,7 @@ async def chat_stream(
                     is_itinerary = event.get("is_itinerary", False)
                     accumulated_data["user_details"] = event.get("user_details", {})
                     accumulated_data["is_edit"] = event.get("is_edit", False)
+                    accumulated_data["geo"] = event.get("geo")
 
                 yield f"data: {json.dumps(event)}\n\n"
 
@@ -216,6 +231,7 @@ async def chat_stream(
                                 accumulated_data.get("user_details", {}),
                                 accumulated_data["itinerary"],
                                 accumulated_data.get("is_edit", False),
+                                geo=accumulated_data.get("geo"),
                             )
 
                         persist_db.commit()

@@ -88,6 +88,7 @@ class Trip(Base):
     budget = Column(String)
     interests = Column(String)
     itinerary_text = Column(Text)
+    geo = Column(JSON, nullable=True)  # {hotel, days[]} map payload; null for text-only/legacy trips
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     user = relationship("User", back_populates="trips")
