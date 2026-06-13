@@ -69,7 +69,8 @@
 }
 
 .loader__sweep {
-  transform-box: fill-box;
+  /* Pivot on the SVG center (the radar's middle), not the wedge's own bbox, so it sweeps around. */
+  transform-box: view-box;
   transform-origin: center;
   animation: loader-spin 1.8s linear infinite;
 }
