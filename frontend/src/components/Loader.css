@@ -82,7 +82,7 @@
 /* Rotating conic disc: a crisp leading beam fading into a comet tail behind it. */
 .loader__sweep {
   position: absolute;
-  inset: 6px;
+  inset: 8px;
   border-radius: var(--r-full);
   background: conic-gradient(
     from 0deg,
@@ -119,10 +119,13 @@
   to { transform: rotate(360deg); }
 }
 
+/* Phase-locked to the sweep (same 1.8s period): the blip sits ~50deg clockwise from the top, so the
+   beam reaches it at ~14% of the rotation. Flash there, then fade like phosphor until the next pass. */
 @keyframes loader-blip {
-  0% { opacity: 0; transform: scale(0.3); }
-  40% { opacity: 1; }
-  100% { opacity: 0; transform: scale(1.1); }
+  0%, 11% { opacity: 0; transform: scale(0.6); }
+  14% { opacity: 1; transform: scale(1.4); }
+  24% { opacity: 0.85; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
 }
 
 /* Honor reduced-motion: hold the instrument still rather than spin it. */
