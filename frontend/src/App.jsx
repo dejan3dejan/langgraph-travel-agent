@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, lazy, Suspense } from 'react'
 import './App.css'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
@@ -13,7 +13,9 @@ import Sidebar from './components/Sidebar'
 import Landing from './components/Landing'
 import Toast from './components/Toast'
 import SignupPrompt from './components/SignupPrompt'
-import Map from './components/Map'
+
+// Lazy: Leaflet is heavy and only needed once a plan exists, so keep it off the first-paint bundle.
+const Map = lazy(() => import('./components/Map'))
 
 export default function App() {
   const auth = useAuth()
@@ -111,7 +113,11 @@ export default function App() {
           {messages.map((m, i) => (
             <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} isUpdated={m.isUpdated} updatedSummary={m.updatedSummary} />
           ))}
-          {itineraryGeo && <Map geo={itineraryGeo} />}
+          {itineraryGeo && (
+            <Suspense fallback={null}>
+              <Map geo={itineraryGeo} />
+            </Suspense>
+          )}
           <StatusBar statuses={statuses} />
           <div ref={chatEndRef} />
         </div>
