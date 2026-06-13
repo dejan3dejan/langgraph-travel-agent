@@ -32,7 +32,7 @@ export default function Map({ geo }) {
   if (!geo || !geo.days || geo.days.length === 0) {
     return (
       <div className="map-fallback" role="note">
-        We couldn&apos;t pin this itinerary on a map &mdash; its locations weren&apos;t geocoded.
+        We couldn&apos;t pin this itinerary on a map. Its locations weren&apos;t geocoded.
       </div>
     )
   }

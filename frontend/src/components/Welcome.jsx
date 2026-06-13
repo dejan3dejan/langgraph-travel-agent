@@ -13,7 +13,7 @@ export default function Welcome({ onPrompt }) {
         Where shall we <em>explore</em>?
       </h2>
       <p className="welcome__sub">
-        Tell me your destination, duration, and budget — I'll chart a
+        Tell me your destination, duration, and budget. I'll chart a
         day-by-day itinerary with real restaurants, activities, and hotels.
       </p>
       <p className="welcome__scope">Travel planning only: destinations, food, activities, and stays.</p>
