@@ -68,21 +68,32 @@
   stroke-width: 1.5;
 }
 
+.loader__radar {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+
+.loader__radar svg {
+  position: absolute;
+  inset: 0;
+}
+
+/* Rotating conic disc: a crisp leading beam fading into a comet tail behind it. */
 .loader__sweep {
-  /* Pivot on the SVG center (the radar's middle), not the wedge's own bbox, so it sweeps around. */
-  transform-box: view-box;
-  transform-origin: center;
+  position: absolute;
+  inset: 6px;
+  border-radius: var(--r-full);
+  background: conic-gradient(
+    from 0deg,
+    var(--accent) 0deg,
+    rgba(255, 71, 87, 0) 4deg,
+    rgba(255, 71, 87, 0) 200deg,
+    rgba(255, 71, 87, 0.06) 250deg,
+    rgba(255, 71, 87, 0.42) 348deg,
+    var(--accent) 360deg
+  );
   animation: loader-spin 1.8s linear infinite;
-}
-
-.loader__sweep-wedge {
-  fill: var(--accent);
-  opacity: 0.22;
-}
-
-.loader__sweep-line {
-  stroke: var(--accent);
-  stroke-width: 2;
 }
 
 .loader__blip {
