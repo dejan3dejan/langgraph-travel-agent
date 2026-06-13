@@ -82,7 +82,7 @@
 /* Rotating conic disc: a crisp leading beam fading into a comet tail behind it. */
 .loader__sweep {
   position: absolute;
-  inset: 8px;
+  inset: 6px;
   border-radius: var(--r-full);
   background: conic-gradient(
     from 0deg,
