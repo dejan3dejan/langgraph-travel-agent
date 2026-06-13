@@ -39,7 +39,7 @@ function Radar() {
       <line x1="6" y1="28" x2="50" y2="28" className="loader__lat" />
       <g className="loader__sweep">
         <path d="M28 28 L28 6 A22 22 0 0 1 47 17 Z" className="loader__sweep-wedge" />
-        <line x1="28" y1="28" x2="28" y2="6" className="loader__sweep-line" />
+        <line x1="28" y1="28" x2="47" y2="17" className="loader__sweep-line" />
       </g>
       <circle cx="40" cy="18" r="3" className="loader__blip" />
     </svg>
