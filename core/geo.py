@@ -28,6 +28,7 @@ def optimize_day_route(places: list[dict[str, Any]], hotel_lat: float, hotel_lon
                 "name": nearest.get("name", "Unknown"),
                 "lat": nearest.get("lat"),
                 "lon": nearest.get("lon"),
+                "_type": nearest.get("_type"),
                 "distance_from_previous_km": round(dist, 2),
             }
         )
@@ -70,3 +71,34 @@ def group_places_by_zone(places: list[dict], hotel_lat: float, hotel_lon: float)
             zones["remote"].append(place)
 
     return zones
+
+
+# Map payload: turn the route-optimized zone groups into per-day markers for the client.
+
+_ZONE_ORDER = ["near", "medium", "far", "remote"]
+_ZONE_LABELS = {"near": "Walkable", "medium": "Short transit", "far": "Across town", "remote": "Day trip"}
+
+
+def build_itinerary_geo(zone_groups: dict[str, list[dict]], hotel: dict | None) -> dict[str, Any]:
+    """Assemble the {hotel, days} map payload from route-optimized proximity zones.
+
+    Each non-empty zone becomes a day, numbered in proximity order, keeping the optimized visiting
+    order so the client can draw the route line. Pure: no I/O. An anchor-less or fully un-geocoded
+    plan yields {hotel: None, days: []}, which the frontend renders as a no-map fallback.
+    """
+    days = []
+    for zone in _ZONE_ORDER:
+        places = [
+            {"name": p.get("name"), "lat": p["lat"], "lon": p["lon"], "kind": p.get("_type") or "place"}
+            for p in zone_groups.get(zone, [])
+            if p.get("lat") is not None and p.get("lon") is not None
+        ]
+        if not places:
+            continue
+        days.append({"day": len(days) + 1, "zone": zone, "label": _ZONE_LABELS[zone], "places": places})
+
+    hotel_out = None
+    if hotel and hotel.get("lat") is not None and hotel.get("lon") is not None:
+        hotel_out = {"name": hotel.get("name"), "lat": hotel["lat"], "lon": hotel["lon"]}
+
+    return {"hotel": hotel_out, "days": days}

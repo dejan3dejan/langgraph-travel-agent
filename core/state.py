@@ -18,6 +18,7 @@ class AgentState(TypedDict):
     logistics_meta: dict[str, Any] | None
 
     draft_itinerary: str | None
+    itinerary_geo: dict[str, Any] | None  # {hotel, days[]} for the map view; None on text-only replies
     critique: dict[str, Any] | None
     season_suggestion: str | None
 

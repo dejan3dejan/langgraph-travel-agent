@@ -6,7 +6,7 @@ import time
 from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..geo import group_places_by_zone, optimize_day_route
+from ..geo import build_itinerary_geo, group_places_by_zone, optimize_day_route
 from ..llm import get_llm_for_role
 from ..logger import get_logger
 from ..state import AgentState
@@ -275,6 +275,9 @@ async def compiler_node(state: AgentState) -> dict:
             else:
                 zone_groups[zone] = []
 
+    # Same zones, route order, and anchor the writer sees, handed to the client for the map view.
+    itinerary_geo = build_itinerary_geo(zone_groups, hotel_dicts[0] if hotel_dicts else None)
+
     grouped_data = {
         "near_hotel": {
             "description": "Walking distance (< 2km, 10-25 min walk). OPTIMIZED ROUTE PROVIDED.",
@@ -413,6 +416,7 @@ Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code bl
 
     return {
         "draft_itinerary": draft,
+        "itinerary_geo": itinerary_geo,
         "iteration_count": state.get("iteration_count", 0) + 1,
         "next_node": "critic",
         "debug_logs": [log],
