@@ -1,0 +1,92 @@
+.loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1.75rem 0;
+}
+
+/* Recessed well, like the app's other screens, with the instrument seated inside. */
+.loader__instrument {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--r-full);
+  background: var(--muted);
+  box-shadow: var(--shadow-recessed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loader__label {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.loader__rim {
+  stroke: var(--border-dark);
+  stroke-width: 1.5;
+}
+
+.loader__lat {
+  stroke: var(--shadow-dark);
+  stroke-width: 1;
+}
+
+.loader__meridian {
+  stroke: var(--text-muted);
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loader-meridian 1.8s ease-in-out infinite;
+}
+
+.loader__meridian--accent {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.loader__needle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loader-seek 2.6s ease-in-out infinite;
+}
+
+.loader__needle-n {
+  fill: var(--accent);
+}
+
+.loader__needle-s {
+  fill: var(--text-muted);
+}
+
+.loader__cap {
+  fill: var(--panel);
+  stroke: var(--border-dark);
+  stroke-width: 1.5;
+}
+
+@keyframes loader-meridian {
+  0% { transform: scaleX(1); }
+  50% { transform: scaleX(0.06); }
+  100% { transform: scaleX(1); }
+}
+
+@keyframes loader-seek {
+  0% { transform: rotate(-28deg); }
+  50% { transform: rotate(168deg); }
+  100% { transform: rotate(-28deg); }
+}
+
+/* Honor reduced-motion: hold the instrument still rather than spin it. */
+@media (prefers-reduced-motion: reduce) {
+  .loader__meridian,
+  .loader__needle {
+    animation: none;
+  }
+  .loader__meridian {
+    transform: scaleX(0.4);
+  }
+}

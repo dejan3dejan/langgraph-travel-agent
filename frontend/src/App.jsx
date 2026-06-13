@@ -13,6 +13,7 @@ import Sidebar from './components/Sidebar'
 import Landing from './components/Landing'
 import Toast from './components/Toast'
 import SignupPrompt from './components/SignupPrompt'
+import Loader from './components/Loader'
 
 // Lazy: Leaflet is heavy and only needed once a plan exists, so keep it off the first-paint bundle.
 const Map = lazy(() => import('./components/Map'))
@@ -53,6 +54,8 @@ export default function App() {
 
   const hasMessages = messages.length > 0
   const showRetry = !isStreaming && messages[messages.length - 1]?.isError
+  // The dead air between sending and the first streamed token: research, logistics, compile.
+  const planning = isStreaming && !messages.some((m) => m.role === 'ai-stream')
 
   // Sign out also resets the chat so the next person does not inherit the session.
   const handleSignOut = () => {
@@ -118,6 +121,7 @@ export default function App() {
               <Map geo={itineraryGeo} />
             </Suspense>
           )}
+          {planning && <Loader variant="globe" label="Charting your trip" />}
           <StatusBar statuses={statuses} />
           <div ref={chatEndRef} />
         </div>
