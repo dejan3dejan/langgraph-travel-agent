@@ -105,6 +105,23 @@ class ItineraryCritique(BaseModel):
     missing_data: list[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
 
 
+class ItineraryDay(BaseModel):
+    """One day of the delivered itinerary. Drives the map's per-day grouping and (later) per-day cards."""
+
+    day: int = Field(description="1-based day number, matching the itinerary text")
+    title: str = Field(description="Short theme for the day, e.g. 'Historic centre'")
+    stops: list[str] = Field(
+        default_factory=list,
+        description="Place names visited this day, in visiting order, drawn ONLY from the provided list",
+    )
+
+
+class ItineraryDayPlan(BaseModel):
+    """The itinerary's day-by-day structure, extracted from the written plan to drive the map."""
+
+    days: list[ItineraryDay] = Field(default_factory=list)
+
+
 class TurnIntent(BaseModel):
     """How to handle a turn that arrives after a plan was delivered."""
 

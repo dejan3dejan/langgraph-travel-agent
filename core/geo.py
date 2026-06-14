@@ -1,5 +1,7 @@
 """Geo helpers for proximity-based itinerary planning."""
 
+import re
+import unicodedata
 from typing import Any
 
 from .logistics import haversine_distance
@@ -102,3 +104,62 @@ def build_itinerary_geo(zone_groups: dict[str, list[dict]], hotel: dict | None) 
         hotel_out = {"name": hotel.get("name"), "lat": hotel["lat"], "lon": hotel["lon"]}
 
     return {"hotel": hotel_out, "days": days}
+
+
+# build_itinerary_geo_from_days: the same map payload, but days come from the itinerary's real day
+# assignment (which stops are Day 1, Day 2, ...) rather than proximity zones, so a multi-day trip in
+# a compact city no longer collapses to a single map day.
+
+
+def _normalize_name(name: str) -> str:
+    """Loose key for matching an LLM-emitted stop name back to a geocoded place: lowercase, strip
+    accents and punctuation, drop a leading 'the'. Tolerates minor drift like 'The Louvre' vs
+    'Louvre' or 'Musee dOrsay' vs 'Musée d'Orsay'."""
+    decomposed = unicodedata.normalize("NFKD", name or "")
+    ascii_only = "".join(c for c in decomposed if not unicodedata.combining(c))
+    cleaned = re.sub(r"[^a-z0-9 ]", "", ascii_only.lower())
+    cleaned = re.sub(r"^the ", "", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _build_place_index(places: list[dict]) -> dict[str, dict]:
+    """Normalized-name -> slim geocoded place. Places without coords are skipped: they can't be
+    plotted, so a stop pointing at one is treated as unmatched."""
+    index = {}
+    for p in places:
+        if p.get("lat") is None or p.get("lon") is None:
+            continue
+        index[_normalize_name(p.get("name", ""))] = {
+            "name": p.get("name"),
+            "lat": p["lat"],
+            "lon": p["lon"],
+            "kind": p.get("_type") or "place",
+        }
+    return index
+
+
+def build_itinerary_geo_from_days(days: list[dict[str, Any]], places: list[dict], hotel: dict | None) -> dict[str, Any]:
+    """Assemble the {hotel, days} map payload from the itinerary's real per-day assignment.
+
+    `days` is the compiler's structured pass: [{"day", "title", "stops": [place names]}], where each
+    stop names a place from `places`. Stops are matched back to their geocoded place to attach
+    coords, preserving the given order so the route line follows the narrative. The itinerary's own
+    day numbers and titles are kept, so the map's day count matches the text. A day whose stops all
+    fail to match is dropped (it can't be plotted). Pure: no I/O.
+    """
+    index = _build_place_index(places)
+    out_days = []
+    for d in days:
+        located = []
+        for name in d.get("stops", []):
+            place = index.get(_normalize_name(name))
+            if place is not None:
+                located.append(place)
+        if located:
+            out_days.append({"day": d.get("day"), "title": d.get("title"), "places": located})
+
+    hotel_out = None
+    if hotel and hotel.get("lat") is not None and hotel.get("lon") is not None:
+        hotel_out = {"name": hotel.get("name"), "lat": hotel["lat"], "lon": hotel["lon"]}
+
+    return {"hotel": hotel_out, "days": out_days}

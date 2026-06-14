@@ -1,6 +1,6 @@
 """Unit tests for the pure geo helpers — no I/O, no API, fully deterministic."""
 
-from core.geo import build_itinerary_geo, group_places_by_zone, optimize_day_route
+from core.geo import build_itinerary_geo, build_itinerary_geo_from_days, group_places_by_zone, optimize_day_route
 from core.logistics import haversine_distance
 
 PARIS = (48.8566, 2.3522)
@@ -151,3 +151,77 @@ def test_build_itinerary_geo_labels_each_zone():
         "far": "Across town",
         "remote": "Day trip",
     }
+
+
+# build_itinerary_geo_from_days: map days driven by the itinerary's real day assignment, not zones
+
+
+def _day(day, title, stops):
+    return {"day": day, "title": title, "stops": stops}
+
+
+def test_from_days_numbers_by_itinerary_not_zone():
+    # Compact city: every stop sits in one proximity zone, but the itinerary plans two days. The map
+    # must follow the itinerary's days instead of collapsing to a single zone-day (the P2 bug).
+    lat, lon = PARIS
+    places = [
+        _place("Louvre", lat + 0.004, lon, "activity"),
+        _place("Musee d'Orsay", lat + 0.005, lon, "activity"),
+        _place("Le Comptoir", lat + 0.006, lon, "restaurant"),
+        _place("Eiffel Tower", lat + 0.007, lon, "activity"),
+    ]
+    days = [
+        _day(1, "Right bank", ["Louvre", "Le Comptoir"]),
+        _day(2, "Left bank", ["Musee d'Orsay", "Eiffel Tower"]),
+    ]
+    out = build_itinerary_geo_from_days(days, places, {"name": "Hotel", "lat": lat, "lon": lon})
+
+    assert [d["day"] for d in out["days"]] == [1, 2]
+    assert [d["title"] for d in out["days"]] == ["Right bank", "Left bank"]
+    assert [p["name"] for p in out["days"][0]["places"]] == ["Louvre", "Le Comptoir"]
+    assert [p["name"] for p in out["days"][1]["places"]] == ["Musee d'Orsay", "Eiffel Tower"]
+
+
+def test_from_days_matches_names_loosely():
+    # Accents, a leading "the", and case must not break the stop -> geocoded-place match.
+    places = [_place("Musée d'Orsay", 48.86, 2.32, "activity"), _place("The Louvre", 48.86, 2.34, "activity")]
+    out = build_itinerary_geo_from_days([_day(1, "Art", ["musee dorsay", "Louvre"])], places, None)
+    assert [p["name"] for p in out["days"][0]["places"]] == ["Musée d'Orsay", "The Louvre"]
+
+
+def test_from_days_drops_unmatched_stops():
+    places = [_place("Louvre", 48.86, 2.34, "activity")]
+    out = build_itinerary_geo_from_days([_day(1, "Day", ["Louvre", "Somewhere we never researched"])], places, None)
+    assert [p["name"] for p in out["days"][0]["places"]] == ["Louvre"]
+
+
+def test_from_days_skips_day_with_no_located_stops():
+    places = [_place("Louvre", 48.86, 2.34, "activity")]
+    days = [_day(1, "Day 1", ["Louvre"]), _day(2, "Day 2", ["Unknown place"])]
+    out = build_itinerary_geo_from_days(days, places, None)
+    assert [d["day"] for d in out["days"]] == [1]
+
+
+def test_from_days_skips_stop_whose_place_has_no_coords():
+    places = [{"name": "Ghost", "lat": None, "lon": None, "_type": "activity"}]
+    out = build_itinerary_geo_from_days([_day(1, "Day", ["Ghost"])], places, None)
+    assert out["days"] == []
+
+
+def test_from_days_carries_hotel_and_kind():
+    places = [_place("Bar", 48.86, 2.34, "restaurant")]
+    out = build_itinerary_geo_from_days([_day(1, "Eat", ["Bar"])], places, {"name": "Hotel", "lat": 48.85, "lon": 2.35})
+    assert out["hotel"] == {"name": "Hotel", "lat": 48.85, "lon": 2.35}
+    assert out["days"][0]["places"][0] == {"name": "Bar", "lat": 48.86, "lon": 2.34, "kind": "restaurant"}
+
+
+def test_from_days_drops_hotel_without_coords():
+    places = [_place("Louvre", 48.86, 2.34, "activity")]
+    out = build_itinerary_geo_from_days([_day(1, "D", ["Louvre"])], places, {"name": "H", "lat": None, "lon": None})
+    assert out["hotel"] is None
+    assert len(out["days"]) == 1
+
+
+def test_from_days_empty_plan_yields_no_days():
+    out = build_itinerary_geo_from_days([], [_place("Louvre", 48.86, 2.34)], None)
+    assert out == {"hotel": None, "days": []}

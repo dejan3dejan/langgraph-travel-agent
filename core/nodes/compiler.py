@@ -6,9 +6,10 @@ import time
 from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..geo import build_itinerary_geo, group_places_by_zone, optimize_day_route
+from ..geo import build_itinerary_geo, build_itinerary_geo_from_days, group_places_by_zone, optimize_day_route
 from ..llm import get_llm_for_role
 from ..logger import get_logger
+from ..schemas import ItineraryDayPlan
 from ..state import AgentState
 from ._utils import _in_destination, log_usage
 
@@ -205,6 +206,26 @@ Output the full revised itinerary in the same Markdown format, starting with its
 Output ONLY the raw Markdown. No preamble, no code fences."""
 
 
+def _build_day_assignment_prompt(draft_markdown: str, place_names: list[str]) -> str:
+    """Prompt for the structured day pass: read the itinerary that was just written and report, per
+    day, which known places it visits and in what order. Stops must be drawn only from the provided
+    names so the caller can match them back to geocoded coordinates."""
+    names = "\n".join(f"- {n}" for n in place_names)
+    return f"""Read this travel itinerary and report its day-by-day structure for a map view.
+
+For each day the itinerary describes, return:
+- day: the day number as written
+- title: a short theme for that day
+- stops: the places visited that day, in the order they appear, using ONLY names from the list
+  below. Skip anything not in the list; do not invent places.
+
+AVAILABLE PLACES:
+{names}
+
+ITINERARY:
+{draft_markdown}"""
+
+
 async def _compile_edit(state: AgentState, t0: float) -> dict:
     """Edit mode: stream a revised itinerary from the prior plan and the change instruction. Skips
     research and the critic (next_node 'approved'); the critic counts empty research as missing data
@@ -225,6 +246,24 @@ async def _compile_edit(state: AgentState, t0: float) -> dict:
         "next_node": "approved",
         "debug_logs": [log_usage("compiler", t0, response)],
     }
+
+
+async def _assign_days(draft_markdown: str, places: list[dict]) -> tuple[list[dict] | None, dict]:
+    """Second structured pass: read the itinerary just written and report each day's title and the
+    places visited that day, in order. Returns (day list, log), or (None, log) when the pass fails or
+    there is nothing to map, so the caller can fall back to proximity-zone days. Fail-open, like the
+    critic, so a flaky extraction never blocks delivering the plan."""
+    t0 = time.time()
+    names = [p["name"] for p in places if p.get("name")]
+    if not names:
+        return None, log_usage("compiler_days", t0)
+    structured = get_llm_for_role("extraction").with_structured_output(ItineraryDayPlan)
+    try:
+        result = await structured.ainvoke([HumanMessage(content=_build_day_assignment_prompt(draft_markdown, names))])
+        return [d.model_dump() for d in result.days], log_usage("compiler_days", t0, result)
+    except Exception as e:
+        logger.warning(f"Day-assignment pass failed; map will fall back to zones: {e}")
+        return None, log_usage("compiler_days", t0)
 
 
 # Compiler node
@@ -274,9 +313,6 @@ async def compiler_node(state: AgentState) -> dict:
                 zone_groups[zone] = optimization.get("optimized_order", [])
             else:
                 zone_groups[zone] = []
-
-    # Same zones, route order, and anchor the writer sees, handed to the client for the map view.
-    itinerary_geo = build_itinerary_geo(zone_groups, hotel_dicts[0] if hotel_dicts else None)
 
     grouped_data = {
         "near_hotel": {
@@ -412,12 +448,24 @@ Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code bl
         config={"tags": ["final_itinerary"]},
     )
     draft = response.content
-    log = log_usage("compiler", t0, response)
+    logs = [log_usage("compiler", t0, response)]
+
+    # Drive the map's days from the itinerary's real day structure (a structured pass over the plan
+    # just written), not proximity zones, so a multi-day trip in a compact city keeps its days.
+    hotel = hotel_dicts[0] if hotel_dicts else None
+    day_plan, day_log = await _assign_days(draft, all_places)
+    logs.append(day_log)
+
+    itinerary_geo = build_itinerary_geo_from_days(day_plan, all_places, hotel) if day_plan else None
+    if not itinerary_geo or not itinerary_geo["days"]:
+        if day_plan:
+            logger.warning("Day-assignment matched no plottable stops; map fell back to proximity zones")
+        itinerary_geo = build_itinerary_geo(zone_groups, hotel)
 
     return {
         "draft_itinerary": draft,
         "itinerary_geo": itinerary_geo,
         "iteration_count": state.get("iteration_count", 0) + 1,
         "next_node": "critic",
-        "debug_logs": [log],
+        "debug_logs": logs,
     }

@@ -5,6 +5,7 @@ from core.nodes.compiler import (
     _accommodation_format_section,
     _anchor_coords,
     _base_label,
+    _build_day_assignment_prompt,
     _build_edit_prompt,
     _origin_known,
     _transport_section,
@@ -115,3 +116,19 @@ def test_build_edit_prompt_has_no_inline_note():
     assert "only" in prompt  # still: apply only the requested change
     assert "markdown" in prompt  # still: raw markdown out
     assert "updated:" not in prompt
+
+
+# day-assignment pass prompt (the structured per-day extraction)
+
+
+def test_build_day_assignment_prompt_includes_itinerary_and_names():
+    prompt = _build_day_assignment_prompt("# Trip to Rome\n## Day 1: Colosseum", ["Colosseum", "Trattoria Vecchia"])
+    assert "# Trip to Rome" in prompt
+    assert "Colosseum" in prompt
+    assert "Trattoria Vecchia" in prompt
+
+
+def test_build_day_assignment_prompt_constrains_to_provided_names():
+    # Stops must come from the known list so the caller can match them back to geocoded coordinates.
+    prompt = _build_day_assignment_prompt("# Trip", ["Louvre"]).lower()
+    assert "only" in prompt
