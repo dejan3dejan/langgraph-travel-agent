@@ -21,9 +21,9 @@ from ._utils import _in_destination, _origin_pending, log_usage
 logger = get_logger(__name__)
 
 # Soft-slot turn budget: destination and duration are always required, but after this many user
-# turns we stop asking the soft slots (accommodation, intent) and plan with what we have, so the
-# conversation can't drag on forever.
-MAX_INTERVIEW_TURNS = 4
+# turns we stop asking the soft slots (accommodation, intent, the pre-plan confirm) and plan with
+# what we have, so the conversation can't drag on forever.
+MAX_INTERVIEW_TURNS = 6
 
 _EXTRACTION_PROMPT = """
 Extract the user's travel preferences from the conversation into structured form.
@@ -69,6 +69,11 @@ DO THEY NEED LODGING (set `needs_accommodation`):
 DURATION (recognize short stays; do not leave empty when a timeframe is given):
 - "today" / "this afternoon" / "tonight" / "just for the day" / "a day" -> duration = "1 day".
 - "this weekend" / "a couple of days" -> duration = "2 days". "a week" -> "7 days".
+
+CONSTRAINTS / SAFETY (set `constraints`, comma-separated; leave empty if none mentioned):
+- Capture allergies, dietary needs, accessibility needs, and preferred pace, e.g. "allergic to
+  shellfish", "vegetarian", "wheelchair accessible", "relaxed pace", "no early mornings".
+- Allergies are safety-relevant: never drop one the user mentions.
 
 INTENT: if the user is vague about what they want to do ("something", "anything", "stuff to do",
 "things to see"), leave `interests` EMPTY so we can ask. Only fill `interests` from concrete signals.
@@ -151,6 +156,13 @@ problem and asks the user to fix it. Do not lecture and do not mention these cat
 
 TRIP DETAILS:
 {summary}
+"""
+
+_CONFIRM_TASK = """
+You have what you need to plan, but give the traveler one chance to add anything first. Begin your
+reply with exactly "Before I start planning," then, in one short friendly sentence, ask if there is
+anything else to know: allergies or dietary needs, accessibility, the pace they prefer, or any
+must-see spots. Do not start planning yet.
 """
 
 
@@ -286,6 +298,21 @@ async def _ask_edit_confirmation(messages: list[dict], t0: float) -> dict:
     }
 
 
+async def _ask_confirm(messages: list[dict], t0: float) -> dict:
+    """Pre-plan 'anything else?' beat: lets the user add preferences (allergies, pace, must-sees)
+    before planning. Streams like any interview question and begins with a stable marker so it fires
+    exactly once."""
+    chat_llm = get_llm_for_role("interviewer")
+    system = ATLAS_PERSONA + "\n" + _CONFIRM_TASK
+    lc_messages = [SystemMessage(content=system)] + _to_lc_messages(messages)
+    response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
+    return {
+        "messages": [{"role": "model", "content": response.content}],
+        "next_node": "interviewer",
+        "debug_logs": [log_usage("interviewer", t0, response)],
+    }
+
+
 def _has(user_details: dict, key: str) -> bool:
     return bool((user_details.get(key) or "").strip())
 
@@ -297,19 +324,56 @@ def _intent_vague(user_details: dict) -> bool:
     return interests in ("", "unknown", "general sightseeing")
 
 
-def _next_question(user_details: dict, user_turns: int) -> str | None:
+_READY_SIGNALS = (
+    "plan it",
+    "plan now",
+    "just plan",
+    "make the plan",
+    "go ahead",
+    "go for it",
+    "that's all",
+    "thats all",
+    "that's everything",
+    "thats everything",
+    "nothing else",
+    "no more",
+    "i'm ready",
+    "im ready",
+    "let's go",
+    "lets go",
+)
+
+
+def _ready_signal(text: str) -> bool:
+    """True when the user explicitly asks to start planning, so we skip the remaining optional
+    questions and the confirm beat. The hard slots (destination, duration) are still required."""
+    t = (text or "").strip().lower()
+    return any(p in t for p in _READY_SIGNALS)
+
+
+_CONFIRM_MARKER = "before i start planning"
+
+
+def _confirm_asked(messages: list[dict]) -> bool:
+    """True once Atlas has asked the pre-plan 'anything else?' beat, so it fires exactly once. Read
+    from history, the only state that persists across turns (same approach as _plan_in_history)."""
+    return any(m.get("role") == "model" and _CONFIRM_MARKER in (m.get("content") or "").lower() for m in messages)
+
+
+def _next_question(user_details: dict, user_turns: int, force_ready: bool = False) -> str | None:
     """The next slot to ask for, or None when there's enough to plan. Pure; this is the anti-loop
     gate, decided in code, not by the LLM.
 
     destination and duration are always required, so we never silently plan without them. The soft
     slots (accommodation, intent) are asked only while we're under the turn budget; past it we plan
-    and let _finalize_details fill them, so the interview always terminates.
+    and let _finalize_details fill them, so the interview always terminates. force_ready (the user
+    asked to start planning) skips the soft slots but never the hard ones.
     """
     if not _has(user_details, "destination"):
         return "destination"
     if not _has(user_details, "duration"):
         return "duration"
-    if user_turns >= MAX_INTERVIEW_TURNS:
+    if force_ready or user_turns >= MAX_INTERVIEW_TURNS:
         return None
     if user_details.get("needs_accommodation") is None:
         return "accommodation"
@@ -458,7 +522,8 @@ async def interviewer_node(state: AgentState) -> dict:
             return await _answer_followup(messages, itinerary, t0)
 
     # 2. Deterministic decision (pure helper). This is what prevents looping: one slot per turn.
-    question = _next_question(user_details, user_turns)
+    force_ready = _ready_signal(_latest_user_message(messages))
+    question = _next_question(user_details, user_turns, force_ready=force_ready)
     if question is not None:
         return await _ask_for(question, user_details, messages, t0)
 
@@ -471,6 +536,11 @@ async def interviewer_node(state: AgentState) -> dict:
             "next_node": "interviewer",
             "debug_logs": [log_usage("interviewer", t0)],
         }
+
+    # Let the interview breathe: one "anything else?" beat (allergies, pace, must-sees) before
+    # planning, unless the user already signalled they're ready, we've asked it, or the budget is up.
+    if not force_ready and not _confirm_asked(messages) and user_turns < MAX_INTERVIEW_TURNS:
+        return await _ask_confirm(messages, t0)
 
     user_details = _finalize_details(user_details)
     season_suggestion = _compute_season_suggestion(user_details)

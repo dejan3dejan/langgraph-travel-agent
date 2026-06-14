@@ -152,3 +152,35 @@ async def test_compiler_emits_no_geo_on_an_edit(monkeypatch):
 
     assert result["draft_itinerary"]
     assert "itinerary_geo" not in result
+
+
+async def test_compiler_prompt_includes_constraints(monkeypatch):
+    # Allergies/dietary captured into constraints must reach the writer so the plan honors them.
+    captured = {}
+
+    class _CapturingLLM:
+        async def ainvoke(self, messages, config=None):
+            captured["prompt"] = " ".join(getattr(m, "content", "") for m in messages)
+            return _FakeResponse("# 2 days in Rome\n## Day 1\nColosseum.")
+
+        def with_structured_output(self, schema):
+            return _FakeStructured(ItineraryDayPlan(days=[ItineraryDay(day=1, title="Day", stops=["Colosseum"])]))
+
+    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role: _CapturingLLM())
+    state = {
+        "user_details": {
+            "destination": "Rome",
+            "duration": "2 days",
+            "needs_accommodation": False,
+            "constraints": "allergic to shellfish, wheelchair accessible",
+        },
+        "activity_data": [{"name": "Colosseum", "address": "Rome", "lat": 41.89, "lon": 12.49}],
+        "food_data": [],
+        "hotel_data": [],
+        "iteration_count": 0,
+    }
+
+    await compiler_node(state)
+
+    assert "allergic to shellfish" in captured["prompt"]
+    assert "wheelchair accessible" in captured["prompt"]

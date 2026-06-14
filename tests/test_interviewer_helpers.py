@@ -3,6 +3,7 @@
 from core.nodes.interviewer import (
     MAX_INTERVIEW_TURNS,
     _compute_season_suggestion,
+    _confirm_asked,
     _finalize_details,
     _intent_vague,
     _is_ready,
@@ -12,6 +13,7 @@ from core.nodes.interviewer import (
     _plan_in_history,
     _post_plan_action,
     _question_text,
+    _ready_signal,
     _route_edit,
 )
 
@@ -332,3 +334,36 @@ def test_route_edit_carries_instruction_and_plan_to_compiler():
     assert out["user_details"] == {"destination": "Rome"}
     # no user-facing model text here: the compiler streams the revised plan
     assert "messages" not in out
+
+
+# ready signal and the pre-plan confirm beat
+
+
+def test_ready_signal_detects_go_ahead_phrases():
+    for text in ["plan it now", "go ahead", "that's all", "I'm ready", "let's go", "just plan it", "nothing else"]:
+        assert _ready_signal(text) is True
+
+
+def test_ready_signal_false_for_normal_answers():
+    for text in ["I love food and history", "two adults", "Rome for 5 days", ""]:
+        assert _ready_signal(text) is False
+
+
+def test_force_ready_skips_soft_slots_but_not_hard_ones():
+    # "plan it now" jumps straight to planning once destination + duration are known...
+    d = {"destination": "Rome", "duration": "5 days", "needs_accommodation": None, "interests": ""}
+    assert _next_question(d, user_turns=1, force_ready=True) is None
+    # ...but it can never skip the hard slots
+    assert _next_question({"destination": "", "duration": "5 days"}, user_turns=1, force_ready=True) == "destination"
+
+
+def test_confirm_asked_detects_the_beat():
+    msgs = [
+        {"role": "user", "content": "rome 5 days"},
+        {"role": "model", "content": "Before I start planning, is there anything else I should know?"},
+    ]
+    assert _confirm_asked(msgs) is True
+
+
+def test_confirm_asked_false_before_the_beat():
+    assert _confirm_asked([{"role": "model", "content": "How many days are you planning?"}]) is False

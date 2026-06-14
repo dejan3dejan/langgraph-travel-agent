@@ -374,6 +374,7 @@ TRAVELER PROFILE (use this to personalize the narrative)
 - Duration: {user_details.get('duration')}
 - Budget: {user_details.get('budget')}
 - Interests: {user_details.get('interests')}
+- Must respect (allergies/dietary/constraints): {user_details.get('constraints') or 'none stated'}
 
 {f"🌍 TIMING RECOMMENDATION: {season_suggestion}" if season_suggestion else ""}
 
@@ -413,6 +414,10 @@ NARRATIVE STYLE GUIDE
 
 6. **REMOTE LOCATIONS WARNING:** If using "day_trip_territory" places, add a note:
    "⚠️ This is a day trip - allow extra travel time"
+
+7. **RESPECT CONSTRAINTS & ALLERGIES:** Honor the traveler's stated constraints in every
+   recommendation. Allergies and dietary needs are non-negotiable: never suggest food or venues that
+   conflict with them.
 
 ═══════════════════════════════════════════════════════════════
 OUTPUT FORMAT (Markdown)

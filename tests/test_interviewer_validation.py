@@ -60,15 +60,27 @@ async def test_validate_proceeds_when_feasibility_errors(monkeypatch):
 # Node wiring: a ready-but-absurd request stays in the interview, never reaching research
 
 
-class _FakePrefsLLM:
+class _Structured:
     def __init__(self, prefs):
         self._prefs = prefs
 
-    def with_structured_output(self, schema):
-        return self
-
     async def ainvoke(self, messages, config=None):
         return self._prefs
+
+
+class _Fake:
+    """Stands in for the interviewer/extraction LLM: structured calls yield the preset preferences,
+    a plain call yields a conversational reply (used by the confirm beat)."""
+
+    def __init__(self, prefs, reply="Before I start planning, is there anything else I should know?"):
+        self._prefs = prefs
+        self._reply = reply
+
+    def with_structured_output(self, schema):
+        return _Structured(self._prefs)
+
+    async def ainvoke(self, messages, config=None):
+        return type("_R", (), {"content": self._reply, "usage_metadata": {"total_tokens": 3}})()
 
 
 def _ready(**overrides):
@@ -84,15 +96,37 @@ def _ready(**overrides):
 
 
 async def test_node_stays_in_interview_for_absurd_length(monkeypatch):
-    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _FakePrefsLLM(_ready(duration="109 days")))
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready(duration="109 days")))
     monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
     result = await interviewer_node({"messages": [{"role": "user", "content": "109 day trip to Paris"}]})
     assert result["next_node"] == "interviewer"
     assert "30" in result["messages"][0]["content"]
 
 
-async def test_node_proceeds_to_research_when_valid(monkeypatch):
-    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _FakePrefsLLM(_ready()))
+async def test_node_asks_confirm_beat_before_planning(monkeypatch):
+    # Ready and valid, but the "anything else?" beat has not happened yet: ask it, do not plan.
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready()))
     monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
     result = await interviewer_node({"messages": [{"role": "user", "content": "3 day trip to Paris"}]})
+    assert result["next_node"] == "interviewer"
+    assert "before i start planning" in result["messages"][0]["content"].lower()
+
+
+async def test_node_plans_after_confirm_beat(monkeypatch):
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready()))
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
+    messages = [
+        {"role": "user", "content": "3 day trip to Paris"},
+        {"role": "model", "content": "Before I start planning, anything else I should know?"},
+        {"role": "user", "content": "no, that covers it"},
+    ]
+    result = await interviewer_node({"messages": messages})
+    assert result["next_node"] == "research"
+
+
+async def test_node_honors_plan_it_now(monkeypatch):
+    # An explicit "plan it now" skips the confirm beat and plans immediately.
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready()))
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
+    result = await interviewer_node({"messages": [{"role": "user", "content": "plan it now"}]})
     assert result["next_node"] == "research"
