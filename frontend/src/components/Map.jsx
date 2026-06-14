@@ -80,7 +80,7 @@ export default function Map({ geo }) {
         {geo.days.map((d) => (
           <li key={d.day} className="map-legend__item">
             <span className="map-legend__swatch" style={{ background: dayColor(d.day) }} />
-            {`Day ${d.day} · ${d.label}`}
+            {`Day ${d.day} · ${d.title || d.label}`}
           </li>
         ))}
       </ul>

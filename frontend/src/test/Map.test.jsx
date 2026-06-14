@@ -17,11 +17,10 @@ vi.mock('leaflet', () => ({ default: { divIcon: () => ({}) } }))
 const TWO_DAYS = {
   hotel: { name: 'Hotel Roma', lat: 41.89, lon: 12.49 },
   days: [
-    { day: 1, zone: 'near', label: 'Walkable', places: [{ name: 'Colosseum', lat: 41.89, lon: 12.492, kind: 'activity' }] },
+    { day: 1, title: 'Ancient core', places: [{ name: 'Colosseum', lat: 41.89, lon: 12.492, kind: 'activity' }] },
     {
       day: 2,
-      zone: 'medium',
-      label: 'Short transit',
+      title: 'Vatican side',
       places: [
         { name: 'Vatican', lat: 41.902, lon: 12.453, kind: 'activity' },
         { name: 'Trattoria', lat: 41.905, lon: 12.46, kind: 'restaurant' },
@@ -46,7 +45,16 @@ test('C2.4: renders hotel + per-place markers, a route line per day, and a day l
   expect(screen.getAllByTestId('marker')).toHaveLength(4)
   // one route line per day
   expect(screen.getAllByTestId('polyline')).toHaveLength(2)
-  // legend reflects each day and its proximity label
+  // legend reflects each day and its theme
+  expect(screen.getByText(/Day 1 · Ancient core/)).toBeInTheDocument()
+  expect(screen.getByText(/Day 2 · Vatican side/)).toBeInTheDocument()
+})
+
+test('C2.4: falls back to the proximity label for trips saved before day titles', () => {
+  const OLD = {
+    hotel: null,
+    days: [{ day: 1, label: 'Walkable', places: [{ name: 'Park', lat: 41.9, lon: 12.5, kind: 'activity' }] }],
+  }
+  render(<Map geo={OLD} />)
   expect(screen.getByText(/Day 1 · Walkable/)).toBeInTheDocument()
-  expect(screen.getByText(/Day 2 · Short transit/)).toBeInTheDocument()
 })
