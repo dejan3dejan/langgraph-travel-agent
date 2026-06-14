@@ -122,6 +122,19 @@ class ItineraryDayPlan(BaseModel):
     days: list[ItineraryDay] = Field(default_factory=list)
 
 
+class TripFeasibility(BaseModel):
+    """Sanity check on a trip request before planning: is it actually plannable, or fictional /
+    physically impossible / self-contradictory?"""
+
+    feasible: bool = Field(description="True unless the request is clearly fictional, impossible, or contradictory")
+    issue: Literal["none", "unknown_place", "impossible_logistics", "contradictory", "other"] = Field(
+        default="none", description="The kind of problem when not feasible"
+    )
+    clarification: str = Field(
+        default="", description="One short, friendly question to fix the problem; empty when feasible"
+    )
+
+
 class TurnIntent(BaseModel):
     """How to handle a turn that arrives after a plan was delivered."""
 
