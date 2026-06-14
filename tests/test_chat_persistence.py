@@ -1,6 +1,6 @@
 """Unit tests for trip persistence routing (insert vs in-place update). Pure, no DB."""
 
-from api.chat import _is_trip_update, _merge_geo
+from api.chat import _is_trip_update, _merge_constraints, _merge_geo
 
 
 def test_edit_with_existing_trip_updates():
@@ -32,3 +32,21 @@ def test_merge_geo_takes_fresh_coordinates_when_present():
 def test_merge_geo_handles_no_prior_map():
     assert _merge_geo(None, None) is None
     assert _merge_geo(None, {"days": []}) == {"days": []}
+
+
+# constraints memory (remembering allergies/dietary needs across trips)
+
+
+def test_merge_constraints_unions_new_values():
+    assert _merge_constraints("vegetarian", "allergic to shellfish") == "vegetarian, allergic to shellfish"
+
+
+def test_merge_constraints_dedupes_case_insensitively_keeping_saved_order():
+    assert _merge_constraints("Vegetarian", "vegetarian, no stairs") == "Vegetarian, no stairs"
+
+
+def test_merge_constraints_handles_empties():
+    assert _merge_constraints(None, "vegan") == "vegan"
+    assert _merge_constraints("vegan", "") == "vegan"
+    assert _merge_constraints(None, None) == ""
+    assert _merge_constraints("  ", "  ") == ""

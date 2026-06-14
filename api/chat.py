@@ -121,6 +121,43 @@ def _upsert_trip(
     logger.info(f"Saved trip for session {session_id}")
 
 
+def _split_constraints(value: str | None) -> list[str]:
+    return [p.strip() for p in (value or "").split(",") if p.strip()]
+
+
+def _merge_constraints(saved: str | None, learned: str | None) -> str:
+    """Union the saved and chat-learned constraint lists, de-duplicated case-insensitively and saved
+    first, so remembering allergies/dietary needs across trips never piles up duplicates."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in _split_constraints(saved) + _split_constraints(learned):
+        key = item.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return ", ".join(out)
+
+
+def _remember_user_prefs(db: Session, user: User | None, user_details: dict) -> None:
+    """Persist durable, chat-learned preferences (currently constraints, e.g. allergies) to a
+    signed-in user's saved profile, so a later trip seeds them and Atlas does not re-ask. Anonymous
+    users have no profile to update. Merge-only: a learned value extends what is saved, and an empty
+    one never wipes it. Does not commit; the caller owns the transaction."""
+    if not user:
+        return
+    learned = (user_details.get("constraints") or "").strip()
+    if not learned:
+        return
+    pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
+    if not pref:
+        pref = UserPreference(user_id=user.id)
+        db.add(pref)
+    merged = _merge_constraints(pref.constraints, learned)
+    if merged != (pref.constraints or ""):
+        pref.constraints = merged
+        logger.info(f"Remembered constraints for user {user.id}")
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     chat_message: ChatMessage,
@@ -146,6 +183,7 @@ async def chat(
         if is_itinerary:
             try:
                 _upsert_trip(db, session_id, user, user_details, response_text, is_edit)
+                _remember_user_prefs(db, user, user_details)
                 db.commit()
             except Exception as e:
                 logger.error(f"Failed to save trip: {e}")
@@ -233,6 +271,7 @@ async def chat_stream(
                                 accumulated_data.get("is_edit", False),
                                 geo=accumulated_data.get("geo"),
                             )
+                            _remember_user_prefs(persist_db, user, accumulated_data.get("user_details", {}))
 
                         persist_db.commit()
                         logger.info(f"Stream data persisted for session {session_id}")
