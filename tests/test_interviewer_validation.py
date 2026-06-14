@@ -8,7 +8,7 @@ from core.schemas import TripFeasibility, UserPreferences
 
 
 def _feas(feasible, clarification=""):
-    async def _f(user_details):
+    async def _f(user_details, request_text):
         return TripFeasibility(feasible=feasible, clarification=clarification)
 
     return _f
@@ -20,41 +20,41 @@ def _feas(feasible, clarification=""):
 async def test_validate_rejects_too_long_without_consulting_feasibility(monkeypatch):
     consulted = False
 
-    async def _spy(user_details):
+    async def _spy(user_details, request_text):
         nonlocal consulted
         consulted = True
         return TripFeasibility(feasible=True)
 
     monkeypatch.setattr(iv, "_check_feasibility", _spy)
-    msg = await _validate_request({"destination": "Paris", "duration": "109 days"})
+    msg = await _validate_request({"destination": "Paris", "duration": "109 days"}, "109 day trip to Paris")
     assert msg is not None and "30" in msg
     assert consulted is False  # deterministic bound short-circuits the LLM call
 
 
 async def test_validate_rejects_zero_days(monkeypatch):
     monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
-    assert await _validate_request({"destination": "Paris", "duration": "0 days"}) is not None
+    assert await _validate_request({"destination": "Paris", "duration": "0 days"}, "0 day trip") is not None
 
 
 async def test_validate_proceeds_on_feasible(monkeypatch):
     monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
-    assert await _validate_request({"destination": "Paris", "duration": "3 days"}) is None
+    assert await _validate_request({"destination": "Paris", "duration": "3 days"}, "3 days in Paris") is None
 
 
 async def test_validate_clarifies_on_infeasible(monkeypatch):
     monkeypatch.setattr(
         iv, "_check_feasibility", _feas(False, "I couldn't find that destination. Where would you like to go?")
     )
-    msg = await _validate_request({"destination": "Wakanda", "duration": "3 days"})
+    msg = await _validate_request({"destination": "Wakanda", "duration": "3 days"}, "3 days in Wakanda")
     assert msg and "couldn't find" in msg.lower()
 
 
 async def test_validate_proceeds_when_feasibility_errors(monkeypatch):
-    async def _errored(user_details):
+    async def _errored(user_details, request_text):
         return None  # _check_feasibility returns None on its own failure
 
     monkeypatch.setattr(iv, "_check_feasibility", _errored)
-    assert await _validate_request({"destination": "Paris", "duration": "3 days"}) is None
+    assert await _validate_request({"destination": "Paris", "duration": "3 days"}, "3 days in Paris") is None
 
 
 # Node wiring: a ready-but-absurd request stays in the interview, never reaching research

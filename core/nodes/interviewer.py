@@ -154,8 +154,11 @@ When in doubt, mark feasible=true. Obscure but real towns, long flights, and unu
 trips are FEASIBLE. If feasible=false, write one short, friendly clarification that names the specific
 problem and asks the user to fix it. Do not lecture and do not mention these category names.
 
-TRIP DETAILS:
+TRIP DETAILS (extracted):
 {summary}
+
+WHAT THE TRAVELER ACTUALLY SAID (judge this too; transport, timing, and logistics live here):
+{request}
 """
 
 _CONFIRM_TASK = """
@@ -441,24 +444,27 @@ def _finalize_details(user_details: dict) -> dict:
     return user_details
 
 
-async def _check_feasibility(user_details: dict) -> TripFeasibility | None:
-    """Conservative LLM sanity check: only clearly fictional / impossible / contradictory requests
-    come back feasible=false. Returns None on its own failure so a flaky check never blocks a
-    legitimate trip (this is not a safety-critical gate; the worst case is wasted tokens)."""
+async def _check_feasibility(user_details: dict, request_text: str) -> TripFeasibility | None:
+    """Conservative LLM sanity check over the extracted fields AND what the traveler actually said
+    (so transport/timing nonsense like "boat to Moscow in 2 hours" is visible, since it never lands
+    in a structured field): only clearly fictional / impossible / contradictory requests come back
+    feasible=false. Returns None on its own failure so a flaky check never blocks a legitimate trip
+    (not a safety-critical gate; the worst case is wasted tokens)."""
     summary = {
         k: user_details.get(k)
         for k in ("destination", "destinations", "start_location", "duration", "travel_dates")
         if user_details.get(k)
     }
     checker = get_llm_for_role("extraction").with_structured_output(TripFeasibility)
+    prompt = _FEASIBILITY_TASK.format(summary=summary, request=request_text or "(no extra detail)")
     try:
-        return await checker.ainvoke([HumanMessage(content=_FEASIBILITY_TASK.format(summary=summary))])
+        return await checker.ainvoke([HumanMessage(content=prompt)])
     except Exception as e:
         logger.warning(f"Feasibility check failed, proceeding without it: {e}")
         return None
 
 
-async def _validate_request(user_details: dict) -> str | None:
+async def _validate_request(user_details: dict, request_text: str) -> str | None:
     """Pre-plan sanity gate. Returns a clarification to send the user (staying in the interview), or
     None to proceed. Length bounds fail closed; the feasibility check is conservative and proceeds on
     its own error."""
@@ -467,7 +473,7 @@ async def _validate_request(user_details: dict) -> str | None:
         issue = duration_issue(days)
         if issue:
             return issue
-    feasibility = await _check_feasibility(user_details)
+    feasibility = await _check_feasibility(user_details, request_text)
     if feasibility is not None and not feasibility.feasible:
         return feasibility.clarification or "Could you double-check those trip details? Something doesn't add up."
     return None
@@ -522,14 +528,15 @@ async def interviewer_node(state: AgentState) -> dict:
             return await _answer_followup(messages, itinerary, t0)
 
     # 2. Deterministic decision (pure helper). This is what prevents looping: one slot per turn.
-    force_ready = _ready_signal(_latest_user_message(messages))
+    latest_user = _latest_user_message(messages)
+    force_ready = _ready_signal(latest_user)
     question = _next_question(user_details, user_turns, force_ready=force_ready)
     if question is not None:
         return await _ask_for(question, user_details, messages, t0)
 
     # Sanity-gate the request before spending a research+compile pipeline on it: hard length bounds,
     # then a conservative feasibility check. Either one keeps us in the interview to clarify.
-    clarification = await _validate_request(user_details)
+    clarification = await _validate_request(user_details, latest_user)
     if clarification:
         return {
             "messages": [{"role": "model", "content": clarification}],
