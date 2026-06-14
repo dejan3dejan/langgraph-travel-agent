@@ -168,6 +168,13 @@ anything else to know: allergies or dietary needs, accessibility, the pace they 
 must-see spots. Do not start planning yet.
 """
 
+_FIX_TASK = """
+You cannot plan the trip as stated. The problem: {problem}
+
+In ONE short, friendly sentence, tell the traveler plainly what needs fixing and ask them for the
+corrected detail. Do not plan anything yet.
+"""
+
 
 def _compute_season_suggestion(user_details: dict) -> str | None:
     """Generate season suggestion based on budget when no dates are specified."""
@@ -307,6 +314,21 @@ async def _ask_confirm(messages: list[dict], t0: float) -> dict:
     exactly once."""
     chat_llm = get_llm_for_role("interviewer")
     system = ATLAS_PERSONA + "\n" + _CONFIRM_TASK
+    lc_messages = [SystemMessage(content=system)] + _to_lc_messages(messages)
+    response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
+    return {
+        "messages": [{"role": "model", "content": response.content}],
+        "next_node": "interviewer",
+        "debug_logs": [log_usage("interviewer", t0, response)],
+    }
+
+
+async def _ask_to_fix(messages: list[dict], problem: str, t0: float) -> dict:
+    """Stream a warm clarification when the request cannot be planned as stated (out-of-range length,
+    or a fictional / impossible / contradictory trip), so the user sees why and can correct it.
+    LLM-backed so it streams like every other interview turn, instead of a silent fixed string."""
+    chat_llm = get_llm_for_role("interviewer")
+    system = ATLAS_PERSONA + "\n" + _FIX_TASK.format(problem=problem)
     lc_messages = [SystemMessage(content=system)] + _to_lc_messages(messages)
     response = await chat_llm.ainvoke(lc_messages, config={"tags": ["final_itinerary"]})
     return {
@@ -536,13 +558,9 @@ async def interviewer_node(state: AgentState) -> dict:
 
     # Sanity-gate the request before spending a research+compile pipeline on it: hard length bounds,
     # then a conservative feasibility check. Either one keeps us in the interview to clarify.
-    clarification = await _validate_request(user_details, latest_user)
-    if clarification:
-        return {
-            "messages": [{"role": "model", "content": clarification}],
-            "next_node": "interviewer",
-            "debug_logs": [log_usage("interviewer", t0)],
-        }
+    problem = await _validate_request(user_details, latest_user)
+    if problem:
+        return await _ask_to_fix(messages, problem, t0)
 
     # Let the interview breathe: one "anything else?" beat (allergies, pace, must-sees) before
     # planning, unless the user already signalled they're ready, we've asked it, or the budget is up.
