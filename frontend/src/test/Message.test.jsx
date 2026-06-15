@@ -28,3 +28,12 @@ test('an edited itinerary shows what changed next to the badge', () => {
   expect(screen.getByText('Updated')).toBeInTheDocument()
   expect(screen.getByText(/swap the Tuesday restaurant/)).toBeInTheDocument()
 })
+
+test('the AI avatar shows the compass mark and the user avatar a star', () => {
+  const { container, rerender } = render(<Message role="ai" content="hi" />)
+  expect(container.querySelector('.message__avatar svg')).toBeInTheDocument()
+
+  rerender(<Message role="user" content="hi" />)
+  expect(container.querySelector('.message__avatar svg')).toBeNull()
+  expect(container.querySelector('.message__avatar')).toHaveTextContent('✦')
+})

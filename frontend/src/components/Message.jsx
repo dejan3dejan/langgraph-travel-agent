@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import CompassMark from './CompassMark'
 
 const variants = {
   hidden: { opacity: 0, y: 20 },
@@ -25,7 +26,7 @@ export default function Message({ role, content, isItinerary, isUpdated, updated
       layout
     >
       <div className="message__avatar">
-        {isUser ? '✦' : '🧭'}
+        {isUser ? '✦' : <CompassMark size={22} aria-hidden />}
       </div>
       <div className="message__bubble">
         {showMarkdown ? (

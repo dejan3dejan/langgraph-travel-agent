@@ -1,25 +1,28 @@
 :root {
-  /* === Industrial Skeuomorphism palette (light "chassis") === */
-  --bg:            #e0e5ec;   /* chassis — base plastic everything mounts to */
-  --panel:         #f0f2f5;   /* raised panel surface */
-  --muted:         #d1d9e6;   /* recessed wells (inputs, screens, grooves) */
+  /* Brand-adapted neumorphic palette: forest-led on a warm parchment chassis.
+     The composite shadows recompute from these base tokens, so dark mode only
+     re-overrides the bases. */
+  --bg:            #e4ded2;   /* parchment chassis everything mounts to */
+  --panel:         #f1ede4;   /* raised panel surface */
+  --muted:         #d5cebe;   /* recessed wells (inputs, screens, grooves) */
 
-  --text:          #2d3436;   /* dark charcoal ink */
-  --text-muted:    #4a5568;   /* labels / metadata (WCAG AA) */
+  --text:          #16271c;   /* deep forest ink */
+  --text-muted:    #4e6556;   /* labels / metadata (AA on parchment) */
 
-  --accent:        #ff4757;   /* safety orange / Braun red — used sparingly */
+  --accent:        #1a4d3a;   /* brand forest, the primary action color */
   --accent-fg:     #ffffff;
+  --danger:        #c5384b;   /* errors and destructive actions stay red */
 
-  --shadow-dark:   #babecc;   /* darker half of the lighting equation */
-  --shadow-light:  #ffffff;   /* highlight half */
-  --border-dark:   #a3b1c6;   /* prominent dividers */
+  --shadow-dark:   #c6bda9;   /* darker half of the lighting equation */
+  --shadow-light:  #fbf7ef;   /* highlight half */
+  --border-dark:   #bbb19c;   /* prominent dividers */
 
   /* Neumorphic shadow system (consistent top-left light source) */
   --shadow-card:     8px 8px 16px var(--shadow-dark), -8px -8px 16px var(--shadow-light);
   --shadow-floating: 12px 12px 24px var(--shadow-dark), -12px -12px 24px var(--shadow-light), inset 1px 1px 0 rgba(255,255,255,0.5);
   --shadow-pressed:  inset 6px 6px 12px var(--shadow-dark), inset -6px -6px 12px var(--shadow-light);
   --shadow-recessed: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
-  --glow-accent:     0 0 10px 2px rgba(255,71,87,0.55);
+  --glow-accent:     0 0 10px 2px rgba(26,77,58,0.5);
   --glow-online:     0 0 10px 2px rgba(34,197,94,0.65);
 
   /* typography */
@@ -36,20 +39,35 @@
   /* motion */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring:   cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+  /* brand identity tokens for the logo mark; the chassis tokens above are tuned to match */
+  --brand-forest:    #1A4D3A;
+  --brand-sage:      #C8E8D4;
+  --brand-parchment: #F4F1EC;
+  --brand-deep:      #0C1A10;
+  --brand-gold:      #C4973C;
+  --brand-muted:     #5C7A69;
 }
 
 /* dark theme: override the base tokens; the composite shadows recompute from these */
 [data-theme="dark"] {
-  --bg:            #2b2e33;
-  --panel:         #33373d;
-  --muted:         #212429;
-  --text:          #e6e8eb;
-  --text-muted:    #9aa0a6;
-  --accent:        #ff4757;
+  --bg:            #1e201e;   /* warm charcoal chassis, only a whisper of evergreen */
+  --panel:         #262825;
+  --muted:         #161715;
+  --text:          #eaecea;
+  --text-muted:    #a3a8a3;
+  --accent:        #2f8f5e;   /* forest accent, the brand pop against the neutral chassis */
   --accent-fg:     #ffffff;
-  --shadow-dark:   #1d1f23;
-  --shadow-light:  #393d44;
-  --border-dark:   #484d54;
+  --danger:        #ff6b7a;
+  --shadow-dark:   #0e0f0d;
+  --shadow-light:  #292b28;
+  --border-dark:   #373a36;
+  --glow-accent:   0 0 10px 2px rgba(47,143,94,0.55);
+
+  /* the logo mark flips to sage on the dark chassis so it stays legible */
+  --brand-forest:  #c8e8d4;
+  --brand-gold:    #d4a853;
+  --brand-muted:   #7aab8a;
 }
 
 *, *::before, *::after {
@@ -122,7 +140,7 @@ body::after {
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-dark); }
 
-/* === markdown rendering inside itineraries === */
+/* Markdown rendering inside itineraries. */
 .markdown-body {
   font-family: var(--font-body);
   color: var(--text);
@@ -168,7 +186,7 @@ body::after {
 .markdown-body a {
   color: var(--accent);
   text-decoration: none;
-  border-bottom: 1px solid rgba(255,71,87,0.4);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   transition: border-color 0.2s;
 }
 .markdown-body a:hover { border-color: var(--accent); }

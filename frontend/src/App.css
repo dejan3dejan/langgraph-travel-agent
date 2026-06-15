@@ -1,6 +1,4 @@
-/* =========================================================
-   HEADER  — mounted control-panel label
-   ========================================================= */
+/* Header: a mounted control-panel label. */
 
 .header {
   flex-shrink: 0;
@@ -56,7 +54,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-muted);
+  color: var(--brand-muted);
 }
 
 .tagline::before {
@@ -89,9 +87,7 @@
 .theme-toggle:hover { transform: translateY(-2px); box-shadow: var(--shadow-floating); }
 .theme-toggle:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
 
-/* =========================================================
-   CHAT AREA
-   ========================================================= */
+/* Chat area. */
 
 .chat-area {
   flex: 1;
@@ -111,9 +107,7 @@
   padding: 0 6px 8px;
 }
 
-/* =========================================================
-   MESSAGES  — bolted panels
-   ========================================================= */
+/* Messages: bolted panels. */
 
 .message {
   display: flex;
@@ -229,9 +223,7 @@
 
 @keyframes blink { to { opacity: 0; } }
 
-/* =========================================================
-   STATUS PILLS  — LED indicators in a recessed strip
-   ========================================================= */
+/* Status pills: LED indicators in a recessed strip. */
 
 .status-strip {
   display: flex;
@@ -288,9 +280,7 @@
   50%      { opacity: 0.45; transform: scale(0.7); }
 }
 
-/* =========================================================
-   INPUT BAR  — recessed data slot + physical key
-   ========================================================= */
+/* Input bar: a recessed data slot and a physical key. */
 
 .input-bar {
   flex-shrink: 0;
@@ -340,7 +330,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 4px 4px 8px rgba(166,50,60,0.4), -4px -4px 8px rgba(255,120,130,0.35);
+  box-shadow: 4px 4px 8px rgba(13,42,29,0.4), -4px -4px 8px rgba(70,150,108,0.35);
   transition: filter 0.15s, transform 0.15s var(--ease-spring), box-shadow 0.15s;
 }
 
@@ -360,9 +350,7 @@
   cursor: not-allowed;
 }
 
-/* =========================================================
-   WELCOME SCREEN
-   ========================================================= */
+/* Welcome screen. */
 
 .welcome {
   flex: 1;
@@ -459,9 +447,7 @@
   box-shadow: var(--shadow-pressed);
 }
 
-/* =========================================================
-   RESPONSIVE
-   ========================================================= */
+/* Responsive. */
 
 @media (max-width: 640px) {
   .logo-text { font-size: 1.6rem; }
@@ -471,7 +457,7 @@
   .send-btn { width: 48px; height: 48px; }
 }
 
-/* error boundary — recoverable crash panel */
+/* error boundary: recoverable crash panel */
 
 .error-boundary {
   flex: 1;
@@ -642,7 +628,7 @@
 .auth-input:focus { box-shadow: var(--shadow-recessed), 0 0 0 2px var(--accent); }
 
 .auth-error {
-  color: var(--accent);
+  color: var(--danger);
   font-size: 0.8rem;
   text-align: center;
 }
@@ -658,7 +644,7 @@
   font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 4px 4px 8px rgba(166,50,60,0.4), -4px -4px 8px rgba(255,120,130,0.35);
+  box-shadow: 4px 4px 8px rgba(13,42,29,0.4), -4px -4px 8px rgba(70,150,108,0.35);
   transition: filter 0.15s, transform 0.15s var(--ease-spring), box-shadow 0.15s;
 }
 
@@ -804,7 +790,7 @@
   padding: 8px 4px;
   line-height: 1.5;
 }
-.sidebar__error { color: var(--accent); }
+.sidebar__error { color: var(--danger); }
 
 .sidebar__list {
   list-style: none;
@@ -860,7 +846,7 @@
   box-shadow: var(--shadow-card);
   transition: color 0.2s;
 }
-.trip-item__del:hover { color: var(--accent); }
+.trip-item__del:hover { color: var(--danger); }
 
 /* landing page */
 .landing {
@@ -924,7 +910,7 @@
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 4px 4px 8px rgba(166,50,60,0.4), -4px -4px 8px rgba(255,120,130,0.35);
+  box-shadow: 4px 4px 8px rgba(13,42,29,0.4), -4px -4px 8px rgba(70,150,108,0.35);
   transition: filter 0.15s, transform 0.15s var(--ease-spring), box-shadow 0.15s;
 }
 .landing__cta:hover { filter: brightness(1.08); }

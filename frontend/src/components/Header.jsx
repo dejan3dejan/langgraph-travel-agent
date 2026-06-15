@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import CompassMark from './CompassMark'
 
 export default function Header({ user, onSignIn, onSignOut, onToggleTrips }) {
   const [theme, setTheme] = useState(
@@ -28,10 +29,10 @@ export default function Header({ user, onSignIn, onSignOut, onToggleTrips }) {
       </div>
 
       <div className="logo-row">
-        <span className="compass">🧭</span>
+        <span className="compass"><CompassMark size={30} aria-hidden /></span>
         <span className="logo-text">Atlas</span>
       </div>
-      <p className="tagline">Your cartographer for the world</p>
+      <p className="tagline">Navigate everything.</p>
 
       <button
         className="theme-toggle"

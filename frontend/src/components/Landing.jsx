@@ -1,9 +1,11 @@
+import CompassMark from './CompassMark'
+
 // Marketing landing shown on first load. Copy is plain placeholder, pending the marketing pass.
 export default function Landing({ onEnter }) {
   return (
     <div className="landing">
       <div className="landing__hero">
-        <span className="landing__badge">🧭</span>
+        <span className="landing__badge"><CompassMark size={56} aria-hidden /></span>
         <h1 className="landing__title">
           Plan trips with <em>Atlas</em>
         </h1>
