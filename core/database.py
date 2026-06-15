@@ -57,7 +57,8 @@ class UserPreference(Base):
     age_range = Column(String, default="adults")
     trip_type = Column(String, nullable=True)
     start_location = Column(String, nullable=True)
-    constraints = Column(String, nullable=True)
+    constraints = Column(String, nullable=True)  # legacy free-text; superseded by travel_constraints
+    travel_constraints = Column(JSON, nullable=True)  # {hard: [...], soft: [...]}
     updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     user = relationship("User", back_populates="preferences")
