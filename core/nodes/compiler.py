@@ -352,6 +352,7 @@ async def compiler_node(state: AgentState) -> dict:
     start_location = user_details.get("start_location", "")
     transport_section = _transport_section(in_destination, start_location, user_details.get("destination", ""))
     hard_constraints, soft_constraints = render_constraints(user_details.get("constraints"))
+    prior_violations = ", ".join((state.get("critique") or {}).get("hard_violations") or [])
 
     if in_destination:
         origin_line = f"- Currently in: {user_details.get('destination', '')}"
@@ -377,6 +378,7 @@ TRAVELER PROFILE (use this to personalize the narrative)
 - Interests: {user_details.get('interests')}
 - Hard requirements (MUST satisfy, never violate): {hard_constraints or 'none'}
 - Soft preferences (honor when possible): {soft_constraints or 'none'}
+{f"- MUST AVOID (the previous draft violated these hard requirements): {prior_violations}" if prior_violations else ""}
 
 {f"🌍 TIMING RECOMMENDATION: {season_suggestion}" if season_suggestion else ""}
 

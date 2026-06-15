@@ -135,6 +135,13 @@ class ItineraryCritique(BaseModel):
     feedback: str = Field(description="Detailed feedback on the itinerary")
     score: int = Field(description="Score from 1-10")
     missing_data: list[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
+    hard_violations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Places or activities in the plan that violate a hard constraint (allergy, dietary need, "
+            "accessibility); empty if the plan complies"
+        ),
+    )
 
 
 class ItineraryDay(BaseModel):
