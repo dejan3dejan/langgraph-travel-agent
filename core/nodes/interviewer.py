@@ -116,9 +116,10 @@ The plan is shown in the Atlas app next to an interactive map that pins each day
 day, with route lines and the hotel marked). If they ask about the map or where places are, point them
 to that map. Never say you cannot show a map or suggest an outside map service like Google Maps.
 
-Answer their latest question about this trip concisely and helpfully. Prices and availability
-are estimates, not live quotes — say so if asked. If they want to change the trip, acknowledge
-and ask what to adjust.
+Answer their latest question in plain conversational prose. Do NOT reprint the itinerary, a
+day-by-day list, day headings (like "## Day 1"), or a "Trip to ..." title; refer to days and places
+in sentences instead. Prices and availability are estimates, not live quotes, so say so if asked. If
+they want to change the trip, acknowledge and ask what to adjust.
 """
 
 _EDIT_INTENT_TASK = """The traveler already has a full itinerary. Classify their LATEST message:
@@ -389,6 +390,28 @@ def _confirm_asked(messages: list[dict]) -> bool:
     return any(m.get("role") == "model" and _CONFIRM_MARKER in (m.get("content") or "").lower() for m in messages)
 
 
+_FRESH_PLAN_SIGNALS = (
+    "regenerate",
+    "redo the plan",
+    "redo it",
+    "start over",
+    "start again",
+    "do it again",
+    "make a new plan",
+    "new plan",
+    "fresh plan",
+    "from scratch",
+    "scrap it",
+)
+
+
+def _wants_fresh_plan(text: str) -> bool:
+    """True when the user asks to throw out the current plan and build a new one from scratch, so a
+    post-plan turn re-runs the full pipeline instead of editing the existing plan in place."""
+    t = (text or "").strip().lower()
+    return any(p in t for p in _FRESH_PLAN_SIGNALS)
+
+
 def _next_question(user_details: dict, user_turns: int, force_ready: bool = False) -> str | None:
     """The next slot to ask for, or None when there's enough to plan. Pure; this is the anti-loop
     gate, decided in code, not by the LLM.
@@ -538,10 +561,12 @@ async def interviewer_node(state: AgentState) -> dict:
             "debug_logs": [log_usage("interviewer", t0)],
         }
 
-    # 1b. Post-plan mode: if an itinerary was already delivered, answer follow-up
-    #     questions about it instead of restarting the interview — unless the user
-    #     named a NEW destination (then fall through and plan the new trip).
-    if _plan_in_history(messages):
+    latest_user = _latest_user_message(messages)
+
+    # 1b. Post-plan mode: if an itinerary was already delivered, answer follow-up questions about it
+    #     instead of restarting — unless the user named a NEW destination or asked to regenerate from
+    #     scratch (then fall through and plan a fresh one).
+    if _plan_in_history(messages) and not _wants_fresh_plan(latest_user):
         dest = (user_details.get("destination") or "").strip()
         itinerary = _latest_itinerary(messages)
         is_new_trip = bool(dest) and dest.lower() not in itinerary.lower()
@@ -553,9 +578,9 @@ async def interviewer_node(state: AgentState) -> dict:
                 return await _ask_edit_confirmation(messages, t0)
             return await _answer_followup(messages, itinerary, t0)
 
-    # 2. Deterministic decision (pure helper). This is what prevents looping: one slot per turn.
-    latest_user = _latest_user_message(messages)
-    force_ready = _ready_signal(latest_user)
+    # 2. Deterministic decision (pure helper). This is what prevents looping: one slot per turn. A
+    #    "regenerate" request plans immediately too (skip the soft slots and the confirm beat).
+    force_ready = _ready_signal(latest_user) or _wants_fresh_plan(latest_user)
     question = _next_question(user_details, user_turns, force_ready=force_ready)
     if question is not None:
         return await _ask_for(question, user_details, messages, t0)

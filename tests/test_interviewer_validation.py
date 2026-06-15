@@ -131,3 +131,17 @@ async def test_node_honors_plan_it_now(monkeypatch):
     monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
     result = await interviewer_node({"messages": [{"role": "user", "content": "plan it now"}]})
     assert result["next_node"] == "research"
+
+
+async def test_node_regenerate_replans_fresh_instead_of_editing(monkeypatch):
+    # "regenerate the plan" on an existing plan must re-run the pipeline (fresh full plan), not route
+    # to the post-plan edit/follow-up path that can degrade off a brief base.
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready()))
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
+    messages = [
+        {"role": "user", "content": "romantic weekend in Paris"},
+        {"role": "model", "content": "# 2 days Trip to Paris\n## Day 1: Louvre\n## Day 2: Le Marais"},
+        {"role": "user", "content": "regenerate the plan"},
+    ]
+    result = await interviewer_node({"messages": messages})
+    assert result["next_node"] == "research"

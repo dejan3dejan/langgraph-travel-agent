@@ -16,6 +16,7 @@ from core.nodes.interviewer import (
     _question_text,
     _ready_signal,
     _route_edit,
+    _wants_fresh_plan,
 )
 
 
@@ -375,3 +376,21 @@ def test_followup_task_points_to_the_in_app_map():
     task = _FOLLOWUP_TASK.lower()
     assert "map" in task
     assert "never say you cannot show a map" in task
+
+
+def test_followup_task_is_prose_only_to_protect_the_edit_base():
+    # A follow-up must not reprint a day-by-day itinerary; otherwise it becomes the "latest itinerary"
+    # a later edit regenerates from, degrading the plan.
+    task = _FOLLOWUP_TASK.lower()
+    assert "plain conversational prose" in task
+    assert "## day" in task  # explicitly forbids day headings
+
+
+def test_wants_fresh_plan_detects_regenerate():
+    for text in ["regenerate the plan", "redo the plan", "start over", "make a new plan", "do it again from scratch"]:
+        assert _wants_fresh_plan(text) is True
+
+
+def test_wants_fresh_plan_false_for_edits_and_questions():
+    for text in ["swap the day 1 restaurant", "how accurate are the prices?", "make day 2 lighter", ""]:
+        assert _wants_fresh_plan(text) is False
