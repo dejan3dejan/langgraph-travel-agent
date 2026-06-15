@@ -3,10 +3,7 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, Tooltip, useMap } fro
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './Map.css'
-
-// One hue per day; wraps if a plan somehow runs longer than the palette.
-const DAY_COLORS = ['#2563eb', '#db2777', '#16a34a', '#d97706', '#7c3aed', '#0891b2']
-const dayColor = (day) => DAY_COLORS[(day - 1) % DAY_COLORS.length]
+import { dayColor } from '../dayColors'
 
 // HTML pins instead of Leaflet's default image marker, which 404s under the bundler and can't be
 // colored per day anyway.

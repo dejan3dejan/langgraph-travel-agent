@@ -1,0 +1,76 @@
+.day-cards {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+/* Raised card, like the app's other panels. */
+.day-card {
+  background: var(--panel);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  padding: 0.85rem 1rem;
+}
+
+.day-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+}
+
+/* Carries the same hue as the map's markers for that day, so card and map read together. */
+.day-card__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-full);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  border: 2px solid var(--shadow-light);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.day-card__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.day-card__stops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.day-card__stop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-recessed);
+}
+
+.day-card__stop-name {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.day-card__stop-kind {
+  flex: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
