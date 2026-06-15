@@ -1,6 +1,7 @@
 """Unit tests for interviewer helper functions. Pure, no API."""
 
 from core.nodes.interviewer import (
+    _FOLLOWUP_TASK,
     MAX_INTERVIEW_TURNS,
     _compute_season_suggestion,
     _confirm_asked,
@@ -367,3 +368,10 @@ def test_confirm_asked_detects_the_beat():
 
 def test_confirm_asked_false_before_the_beat():
     assert _confirm_asked([{"role": "model", "content": "How many days are you planning?"}]) is False
+
+
+def test_followup_task_points_to_the_in_app_map():
+    # The post-plan answer must know the app renders a map, so "where is the map?" is never denied.
+    task = _FOLLOWUP_TASK.lower()
+    assert "map" in task
+    assert "never say you cannot show a map" in task
