@@ -1,4 +1,7 @@
-fastapi>=0.115.0,<1.0
+# Pinned: newer FastAPI/Starlette wrap included routers as _IncludedRouter in app.routes, which
+# breaks route introspection (test_smoke.py) on a clean CI install. Revisit when verifying a newer release.
+fastapi==0.128.0
+starlette==0.50.0
 uvicorn>=0.32.0,<1.0
 pydantic>=2.0,<3.0
 python-dotenv>=1.0,<2.0
