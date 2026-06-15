@@ -37,16 +37,22 @@ def test_merge_geo_handles_no_prior_map():
 # constraints memory (remembering allergies/dietary needs across trips)
 
 
-def test_merge_constraints_unions_new_values():
-    assert _merge_constraints("vegetarian", "allergic to shellfish") == "vegetarian, allergic to shellfish"
+def test_merge_constraints_unions_hard_and_soft():
+    saved = {"hard": ["vegetarian"], "soft": ["relaxed pace"]}
+    learned = {"hard": ["allergic to shellfish"], "soft": []}
+    assert _merge_constraints(saved, learned) == {
+        "hard": ["vegetarian", "allergic to shellfish"],
+        "soft": ["relaxed pace"],
+    }
 
 
-def test_merge_constraints_dedupes_case_insensitively_keeping_saved_order():
-    assert _merge_constraints("Vegetarian", "vegetarian, no stairs") == "Vegetarian, no stairs"
+def test_merge_constraints_dedupes_case_insensitively_keeping_saved_first():
+    saved = {"hard": ["Halal"], "soft": []}
+    learned = {"hard": ["halal", "no stairs"], "soft": []}
+    assert _merge_constraints(saved, learned) == {"hard": ["Halal", "no stairs"], "soft": []}
 
 
 def test_merge_constraints_handles_empties():
-    assert _merge_constraints(None, "vegan") == "vegan"
-    assert _merge_constraints("vegan", "") == "vegan"
-    assert _merge_constraints(None, None) == ""
-    assert _merge_constraints("  ", "  ") == ""
+    assert _merge_constraints(None, {"hard": ["vegan"], "soft": []}) == {"hard": ["vegan"], "soft": []}
+    assert _merge_constraints({"hard": ["vegan"], "soft": []}, None) == {"hard": ["vegan"], "soft": []}
+    assert _merge_constraints(None, None) == {"hard": [], "soft": []}

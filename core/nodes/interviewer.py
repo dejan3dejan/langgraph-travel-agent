@@ -70,10 +70,15 @@ DURATION (recognize short stays; do not leave empty when a timeframe is given):
 - "today" / "this afternoon" / "tonight" / "just for the day" / "a day" -> duration = "1 day".
 - "this weekend" / "a couple of days" -> duration = "2 days". "a week" -> "7 days".
 
-CONSTRAINTS / SAFETY (set `constraints`, comma-separated; leave empty if none mentioned):
-- Capture allergies, dietary needs, accessibility needs, and preferred pace, e.g. "allergic to
-  shellfish", "vegetarian", "wheelchair accessible", "relaxed pace", "no early mornings".
-- Allergies are safety-relevant: never drop one the user mentions.
+CONSTRAINTS (fill `constraints.hard` and `constraints.soft`; leave empty if none mentioned):
+- hard = must be satisfied, never violated: allergies ("allergic to shellfish"), dietary needs
+  (vegetarian, vegan, gluten-free, halal, kosher, "no pork", "no meat on Fridays"), accessibility
+  ("wheelchair accessible", "no stairs"), hard budget caps, and firm "no X" rules ("no flights").
+- soft = preferences to honor when possible: pace ("relaxed pace"), timing ("no early mornings"), vibe.
+- Capture the actionable NEED, never a protected attribute: if the user mentions a religion or
+  observance, record only the dietary requirement it implies (e.g. "halal", "kosher", "no meat on
+  Fridays"), not the religion. Do not ask about or store religion.
+- Allergies and dietary needs are safety-relevant: never drop one the user mentions.
 
 INTENT: if the user is vague about what they want to do ("something", "anything", "stuff to do",
 "things to see"), leave `interests` EMPTY so we can ask. Only fill `interests` from concrete signals.

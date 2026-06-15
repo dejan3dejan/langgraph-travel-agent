@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage
 
 from ..llm import USE_GEMINI, get_llm_for_role
 from ..logger import get_logger
-from ..schemas import Activity, ActivityList, Hotel, HotelList, Restaurant, RestaurantList
+from ..schemas import Activity, ActivityList, Hotel, HotelList, Restaurant, RestaurantList, render_constraints
 from ..semantic_cache import cache_research_results, semantic_search, should_use_cache
 from ..state import AgentState
 
@@ -92,7 +92,8 @@ def _build_search_query(category: str, dest: str, details: dict) -> str:
 
 def _build_search_prompt(category: str, dest: str, details: dict) -> str:
     """Build the LLM research prompt for a category."""
-    constraints = details.get("constraints", "")
+    hard, soft = render_constraints(details.get("constraints"))
+    constraints = f"Must satisfy: {hard or 'none'}; prefer: {soft or 'none'}"
     num_travelers = details.get("num_travelers", 1)
     age_range = details.get("age_range", "adults")
     budget = details.get("budget", "Medium")

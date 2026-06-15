@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ..geo import build_itinerary_geo, build_itinerary_geo_from_days, group_places_by_zone, optimize_day_route
 from ..llm import get_llm_for_role
 from ..logger import get_logger
-from ..schemas import ItineraryDayPlan
+from ..schemas import ItineraryDayPlan, render_constraints
 from ..state import AgentState
 from ._utils import _in_destination, log_usage
 
@@ -351,6 +351,7 @@ async def compiler_node(state: AgentState) -> dict:
     accommodation_format = _accommodation_format_section(needs_accommodation)
     start_location = user_details.get("start_location", "")
     transport_section = _transport_section(in_destination, start_location, user_details.get("destination", ""))
+    hard_constraints, soft_constraints = render_constraints(user_details.get("constraints"))
 
     if in_destination:
         origin_line = f"- Currently in: {user_details.get('destination', '')}"
@@ -374,7 +375,8 @@ TRAVELER PROFILE (use this to personalize the narrative)
 - Duration: {user_details.get('duration')}
 - Budget: {user_details.get('budget')}
 - Interests: {user_details.get('interests')}
-- Must respect (allergies/dietary/constraints): {user_details.get('constraints') or 'none stated'}
+- Hard requirements (MUST satisfy, never violate): {hard_constraints or 'none'}
+- Soft preferences (honor when possible): {soft_constraints or 'none'}
 
 {f"🌍 TIMING RECOMMENDATION: {season_suggestion}" if season_suggestion else ""}
 
@@ -415,9 +417,9 @@ NARRATIVE STYLE GUIDE
 6. **REMOTE LOCATIONS WARNING:** If using "day_trip_territory" places, add a note:
    "⚠️ This is a day trip - allow extra travel time"
 
-7. **RESPECT CONSTRAINTS & ALLERGIES:** Honor the traveler's stated constraints in every
-   recommendation. Allergies and dietary needs are non-negotiable: never suggest food or venues that
-   conflict with them.
+7. **HARD REQUIREMENTS ARE NON-NEGOTIABLE:** Every recommendation MUST satisfy the hard requirements
+   above. Allergies and dietary needs (including halal, kosher, vegetarian) are safety-critical:
+   never suggest food or venues that conflict with them. Honor the soft preferences when you can.
 
 ═══════════════════════════════════════════════════════════════
 OUTPUT FORMAT (Markdown)

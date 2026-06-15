@@ -3,6 +3,34 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class TravelConstraints(BaseModel):
+    """Traveler constraints split by how strictly they bind. hard = must be satisfied (allergies,
+    dietary needs incl. halal/kosher/vegetarian, accessibility, hard budget, 'no X'); soft =
+    preferences to honor when possible (pace, vibe, timing)."""
+
+    hard: list[str] = Field(
+        default_factory=list,
+        description="Must be satisfied, never violate: allergies, dietary needs, accessibility, hard limits",
+    )
+    soft: list[str] = Field(default_factory=list, description="Preferences to honor when possible: pace, vibe, timing")
+
+
+def render_constraints(value) -> tuple[str, str]:
+    """Render constraints to (hard_text, soft_text) for prompts. Tolerant of the structured dict, a
+    TravelConstraints, a legacy free-text string (treated as soft), or None."""
+    if value is None:
+        return "", ""
+    if isinstance(value, str):
+        return "", value.strip()
+    if isinstance(value, TravelConstraints):
+        hard, soft = value.hard, value.soft
+    elif isinstance(value, dict):
+        hard, soft = value.get("hard") or [], value.get("soft") or []
+    else:
+        return "", ""
+    return ", ".join(hard), ", ".join(soft)
+
+
 class UserPreferences(BaseModel):
     destination: str = Field(description="Primary city or region for the trip")
     destinations: list[str] = Field(
@@ -27,9 +55,13 @@ class UserPreferences(BaseModel):
         default="flexible",
         description="Timing preference: peak, off_season, shoulder, flexible",
     )
-    constraints: str | None = Field(
-        default=None,
-        description="Specific constraints (e.g., 'pet friendly', 'wheelchair accessible', 'no car')",
+    constraints: TravelConstraints = Field(
+        default_factory=TravelConstraints,
+        description=(
+            "Traveler constraints split into hard (must satisfy: allergies, dietary needs like halal/"
+            "kosher/vegetarian, accessibility, hard budget, 'no X') and soft (preferences: pace, vibe, "
+            "timing). Capture the actionable need, never a protected attribute like religion."
+        ),
     )
     needs_accommodation: bool | None = Field(
         default=None,

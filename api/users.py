@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from core.database import ChatSession, Trip, User, UserPreference, get_db
 from core.logger import get_logger
+from core.schemas import TravelConstraints
 
 from .auth import create_access_token, hash_password, require_user, verify_password
 
@@ -49,7 +50,7 @@ class PreferencesRequest(BaseModel):
     age_range: str | None = None
     trip_type: str | None = None
     start_location: str | None = None
-    constraints: str | None = None
+    constraints: TravelConstraints | None = None
 
 
 class PreferencesResponse(BaseModel):
@@ -59,7 +60,7 @@ class PreferencesResponse(BaseModel):
     age_range: str
     trip_type: str | None
     start_location: str | None
-    constraints: str | None
+    constraints: TravelConstraints | None
 
 
 class TripSummary(BaseModel):
@@ -195,7 +196,7 @@ async def get_preferences(user: User = Depends(require_user), db: Session = Depe
         age_range=prefs.age_range,
         trip_type=prefs.trip_type,
         start_location=prefs.start_location,
-        constraints=prefs.constraints,
+        constraints=prefs.travel_constraints,
     )
 
 
@@ -211,8 +212,13 @@ async def update_preferences(
         db.add(prefs)
 
     update_data = req.model_dump(exclude_none=True)
+    # constraints maps to the structured travel_constraints column, not the generic setattr loop
+    # (which would write the legacy string column).
+    constraints = update_data.pop("constraints", None)
     for field, value in update_data.items():
         setattr(prefs, field, value)
+    if constraints is not None:
+        prefs.travel_constraints = constraints
 
     db.commit()
     db.refresh(prefs)
@@ -225,7 +231,7 @@ async def update_preferences(
         age_range=prefs.age_range,
         trip_type=prefs.trip_type,
         start_location=prefs.start_location,
-        constraints=prefs.constraints,
+        constraints=prefs.travel_constraints,
     )
 
 

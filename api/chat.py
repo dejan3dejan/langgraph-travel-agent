@@ -64,7 +64,7 @@ def _seeded_prefs(db: Session, user: User | None) -> dict | None:
         "age_range": pref.age_range,
         "trip_type": pref.trip_type,
         "start_location": pref.start_location,
-        "constraints": pref.constraints,
+        "constraints": _seeded_constraints(pref),
     }
     out = {k: v for k, v in mapping.items() if v}
     return out or None
@@ -121,40 +121,57 @@ def _upsert_trip(
     logger.info(f"Saved trip for session {session_id}")
 
 
-def _split_constraints(value: str | None) -> list[str]:
-    return [p.strip() for p in (value or "").split(",") if p.strip()]
-
-
-def _merge_constraints(saved: str | None, learned: str | None) -> str:
-    """Union the saved and chat-learned constraint lists, de-duplicated case-insensitively and saved
-    first, so remembering allergies/dietary needs across trips never piles up duplicates."""
+def _dedupe(items: list[str]) -> list[str]:
+    """Case-insensitive de-dupe preserving order; drops blanks."""
     seen: set[str] = set()
     out: list[str] = []
-    for item in _split_constraints(saved) + _split_constraints(learned):
-        key = item.lower()
-        if key not in seen:
+    for item in items:
+        cleaned = (item or "").strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
             seen.add(key)
-            out.append(item)
-    return ", ".join(out)
+            out.append(cleaned)
+    return out
+
+
+def _merge_constraints(saved: dict | None, learned: dict | None) -> dict:
+    """Union two structured constraint sets ({hard, soft}), de-duped case-insensitively and saved
+    first, so remembering allergies/dietary needs across trips never piles up duplicates."""
+    saved = saved or {}
+    learned = learned or {}
+    return {
+        "hard": _dedupe((saved.get("hard") or []) + (learned.get("hard") or [])),
+        "soft": _dedupe((saved.get("soft") or []) + (learned.get("soft") or [])),
+    }
+
+
+def _seeded_constraints(pref: UserPreference) -> dict | None:
+    """The user's saved constraints to seed into the interview: the structured value, or the legacy
+    free-text column treated as a single soft entry. None when nothing is saved."""
+    structured = pref.travel_constraints
+    if structured and (structured.get("hard") or structured.get("soft")):
+        return structured
+    legacy = (pref.constraints or "").strip()
+    return {"hard": [], "soft": [legacy]} if legacy else None
 
 
 def _remember_user_prefs(db: Session, user: User | None, user_details: dict) -> None:
-    """Persist durable, chat-learned preferences (currently constraints, e.g. allergies) to a
-    signed-in user's saved profile, so a later trip seeds them and Atlas does not re-ask. Anonymous
-    users have no profile to update. Merge-only: a learned value extends what is saved, and an empty
-    one never wipes it. Does not commit; the caller owns the transaction."""
+    """Persist durable, chat-learned constraints (allergies, dietary, accessibility) to a signed-in
+    user's saved profile, so a later trip seeds them and Atlas does not re-ask. Anonymous users have
+    no profile to update. Merge-only: learned constraints extend what is saved, never wipe it. Does
+    not commit; the caller owns the transaction."""
     if not user:
         return
-    learned = (user_details.get("constraints") or "").strip()
-    if not learned:
+    learned = user_details.get("constraints") or {}
+    if not (learned.get("hard") or learned.get("soft")):
         return
     pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
     if not pref:
         pref = UserPreference(user_id=user.id)
         db.add(pref)
-    merged = _merge_constraints(pref.constraints, learned)
-    if merged != (pref.constraints or ""):
-        pref.constraints = merged
+    merged = _merge_constraints(pref.travel_constraints, learned)
+    if merged != (pref.travel_constraints or {"hard": [], "soft": []}):
+        pref.travel_constraints = merged
         logger.info(f"Remembered constraints for user {user.id}")
 
 

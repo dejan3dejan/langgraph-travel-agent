@@ -172,7 +172,7 @@ async def test_compiler_prompt_includes_constraints(monkeypatch):
             "destination": "Rome",
             "duration": "2 days",
             "needs_accommodation": False,
-            "constraints": "allergic to shellfish, wheelchair accessible",
+            "constraints": {"hard": ["allergic to shellfish"], "soft": ["relaxed pace"]},
         },
         "activity_data": [{"name": "Colosseum", "address": "Rome", "lat": 41.89, "lon": 12.49}],
         "food_data": [],
@@ -182,5 +182,7 @@ async def test_compiler_prompt_includes_constraints(monkeypatch):
 
     await compiler_node(state)
 
+    # hard constraint lands in the enforce block, soft in the prefer block
     assert "allergic to shellfish" in captured["prompt"]
-    assert "wheelchair accessible" in captured["prompt"]
+    assert "relaxed pace" in captured["prompt"]
+    assert "Hard requirements" in captured["prompt"] and "never violate" in captured["prompt"]
