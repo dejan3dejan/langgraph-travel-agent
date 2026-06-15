@@ -161,8 +161,11 @@ Mark feasible=false ONLY when the request is clearly impossible or nonsensical:
 - contradictory: the details contradict each other in a way that cannot be planned.
 
 When in doubt, mark feasible=true. Obscure but real towns, long flights, and unusual-but-possible
-trips are FEASIBLE. If feasible=false, write one short, friendly clarification that names the specific
-problem and asks the user to fix it. Do not lecture and do not mention these category names.
+trips are FEASIBLE. The following are NEVER infeasibility (mark feasible=true and do not comment on
+them): a missing, unstated, or declined origin/starting point; the traveler already being in the
+destination; a same-day or very short trip; or simply sparse details. Never ask for the origin or
+other optional details here. If feasible=false, the clarification must name the impossibility itself.
+Do not lecture and do not mention these category names.
 
 TRIP DETAILS (extracted):
 {summary}
@@ -518,17 +521,27 @@ async def _check_feasibility(user_details: dict, request_text: str) -> TripFeasi
         return None
 
 
+# Only a concrete impossibility blocks planning. A feasible=false with a vague issue ("other"/"none")
+# is the model over-flagging an underspecified-but-plannable trip (e.g. already-in-town, no origin
+# given), so we proceed: bias to feasible, as the gate is not a safety-critical action.
+_BLOCKING_FEASIBILITY_ISSUES = {"unknown_place", "impossible_logistics", "contradictory"}
+
+
 async def _validate_request(user_details: dict, request_text: str) -> str | None:
     """Pre-plan sanity gate. Returns a clarification to send the user (staying in the interview), or
-    None to proceed. Length bounds fail closed; the feasibility check is conservative and proceeds on
-    its own error."""
+    None to proceed. Length bounds fail closed; the feasibility check only blocks on a concrete
+    impossibility and proceeds on its own error."""
     days = parse_trip_days(user_details.get("duration") or "")
     if days is not None:
         issue = duration_issue(days)
         if issue:
             return issue
+    # Already-in-destination trips skip the feasibility check: there is no inter-city travel to be
+    # impossible, the place is real, and the model tends to misread "in X, explore X" as contradictory.
+    if _in_destination(user_details):
+        return None
     feasibility = await _check_feasibility(user_details, request_text)
-    if feasibility is not None and not feasibility.feasible:
+    if feasibility is not None and not feasibility.feasible and feasibility.issue in _BLOCKING_FEASIBILITY_ISSUES:
         return feasibility.clarification or "Could you double-check those trip details? Something doesn't add up."
     return None
 

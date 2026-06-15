@@ -7,9 +7,9 @@ from core.nodes.interviewer import _validate_request, interviewer_node
 from core.schemas import TripFeasibility, UserPreferences
 
 
-def _feas(feasible, clarification=""):
+def _feas(feasible, clarification="", issue="unknown_place"):
     async def _f(user_details, request_text):
-        return TripFeasibility(feasible=feasible, clarification=clarification)
+        return TripFeasibility(feasible=feasible, clarification=clarification, issue=issue if not feasible else "none")
 
     return _f
 
@@ -47,6 +47,23 @@ async def test_validate_clarifies_on_infeasible(monkeypatch):
     )
     msg = await _validate_request({"destination": "Wakanda", "duration": "3 days"}, "3 days in Wakanda")
     assert msg and "couldn't find" in msg.lower()
+
+
+async def test_validate_skips_feasibility_when_in_destination(monkeypatch):
+    # already-in-town trips skip the feasibility LLM, which misreads "in X, explore X" as contradictory
+    async def _should_not_run(user_details, request_text):
+        raise AssertionError("feasibility must be skipped for in-destination trips")
+
+    monkeypatch.setattr(iv, "_check_feasibility", _should_not_run)
+    ud = {"destination": "Bratislava", "start_location": "Bratislava", "duration": "1 day"}
+    assert await _validate_request(ud, "food") is None
+
+
+async def test_validate_ignores_vague_infeasibility(monkeypatch):
+    # feasible=false with no concrete issue (the model over-flagging an already-there / sparse trip)
+    # must NOT block a real, plannable request
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(False, "are you already there?", issue="other"))
+    assert await _validate_request({"destination": "Bratislava", "duration": "1 day"}, "food") is None
 
 
 async def test_validate_proceeds_when_feasibility_errors(monkeypatch):
