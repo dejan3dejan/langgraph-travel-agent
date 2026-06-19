@@ -1,23 +1,48 @@
 .canvas {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 4px 4px 8px;
+  height: 100%;
+  min-height: 0;
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 
-/* The itinerary fills the pane here rather than sitting as a chat bubble, so drop the chat
-   alignment and avatar treatment. */
-.canvas .message {
-  max-width: 100%;
-  align-self: stretch;
+.canvas__header {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-dark);
 }
 
-.canvas .message__avatar { display: none; }
-
-.canvas .message__bubble {
-  width: 100%;
-  box-shadow: var(--shadow-recessed);
+.canvas__title {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  color: var(--text);
 }
 
-/* The map gets more room in the canvas than it had inline in the chat. */
-.canvas .map-view__canvas { height: 420px; }
+/* The map stays pinned below the header while the itinerary scrolls, so it never drifts off. */
+.canvas__map {
+  flex-shrink: 0;
+  padding: 16px 16px 0;
+}
+
+.canvas__map .map-view { margin: 0; }
+.canvas__map .map-view__canvas { height: 300px; }
+.canvas__map .map-fallback { margin: 0; }
+
+.canvas__details {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+}
+
+/* The itinerary is the panel body here, not a chat bubble. The header already carries the trip
+   title, so drop the avatar, the bubble shadow, and the duplicate top heading. */
+.canvas__details .message { max-width: 100%; align-self: stretch; }
+.canvas__details .message__avatar { display: none; }
+.canvas__details .message__bubble { width: 100%; padding: 0; box-shadow: none; }
+.canvas__details .markdown-body > h1:first-child { display: none; }

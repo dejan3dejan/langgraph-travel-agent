@@ -48,9 +48,9 @@ test('stays full-width chat until a plan lands, then splits with the itinerary i
   // The chat side shows a slim reference, not the full plan.
   expect(screen.getByText('Itinerary ready')).toBeInTheDocument()
 
-  // The full itinerary lives in the canvas, and only there.
-  const heading = screen.getByText(/Trip to Rome/)
-  expect(document.querySelector('.workspace__canvas').contains(heading)).toBe(true)
+  // The full itinerary lives in the canvas, and only there: the chat column has no rendered plan.
+  expect(document.querySelector('.workspace__canvas').textContent).toContain('Trip to Rome')
+  expect(document.querySelector('.workspace__chat .markdown-body')).toBeNull()
 })
 
 test('keeps the input bar on the welcome screen and after the split', async () => {

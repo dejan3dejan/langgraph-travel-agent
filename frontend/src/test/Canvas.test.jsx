@@ -11,16 +11,20 @@ const GEO = {
   days: [{ day: 1, title: 'Ancient core', places: [{ name: 'Colosseum', kind: 'activity' }] }],
 }
 
-test('renders the itinerary markdown, day cards, and the map', async () => {
+test('shows the trip title in the header, taken from the itinerary heading', () => {
   render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1' }} geo={GEO} />)
-  expect(screen.getByText(/Trip to Rome/)).toBeInTheDocument()
-  expect(screen.getByText('Ancient core')).toBeInTheDocument()
-  expect(await screen.findByTestId('canvas-map')).toBeInTheDocument()
+  expect(document.querySelector('.canvas__header')).toHaveTextContent('Trip to Rome')
 })
 
-test('still mounts the map when there is no geo so its fallback can show', async () => {
-  render(<Canvas itinerary={{ content: '# Trip' }} geo={null} />)
-  expect(await screen.findByTestId('canvas-map')).toHaveTextContent('no-geo')
+test('falls back to a generic header when the itinerary has no heading', () => {
+  render(<Canvas itinerary={{ content: 'no heading here' }} geo={null} />)
+  expect(document.querySelector('.canvas__header')).toHaveTextContent(/itinerary/i)
+})
+
+test('renders the day cards and the map alongside the itinerary', async () => {
+  render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1' }} geo={GEO} />)
+  expect(screen.getByText('Ancient core')).toBeInTheDocument()
+  expect(await screen.findByTestId('canvas-map')).toHaveTextContent('map')
 })
 
 test('passes the edit summary through to the itinerary', () => {
