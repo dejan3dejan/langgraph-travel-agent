@@ -6,16 +6,24 @@ vi.mock('../components/Map', () => ({ default: () => <div data-testid="map" /> }
 
 function encode(s) { return new TextEncoder().encode(s) }
 
+function readerFor(lines) {
+  let i = 0
+  return { read: () => i < lines.length
+    ? Promise.resolve({ done: false, value: encode(lines[i++]) })
+    : Promise.resolve({ done: true }) }
+}
+
 function streamingFetch(lines) {
-  return vi.fn(async () => ({
-    ok: true, status: 200,
-    body: { getReader: () => {
-      let i = 0
-      return { read: () => i < lines.length
-        ? Promise.resolve({ done: false, value: encode(lines[i++]) })
-        : Promise.resolve({ done: true }) }
-    } },
-  }))
+  return vi.fn(async () => ({ ok: true, status: 200, body: { getReader: () => readerFor(lines) } }))
+}
+
+// Each call returns the next response, so successive sends stream different itineraries.
+function queuedFetch(responses) {
+  let call = 0
+  return vi.fn(async () => {
+    const lines = responses[Math.min(call++, responses.length - 1)]
+    return { ok: true, status: 200, body: { getReader: () => readerFor(lines) } }
+  })
 }
 
 beforeEach(() => {
@@ -70,6 +78,29 @@ test('keeps the input bar on the welcome screen and after the split', async () =
   // After the split the input lives inside the chat column, not lost.
   const input = screen.getByPlaceholderText(/dream trip/i)
   expect(document.querySelector('.workspace__chat').contains(input)).toBe(true)
+})
+
+test('an older itinerary card re-opens that version in the canvas', async () => {
+  const geo = { hotel: null, days: [{ day: 1, title: 'Day one', places: [] }] }
+  vi.stubGlobal('fetch', queuedFetch([
+    ['data: {"type":"token","content":"# Rome plan one"}\n\n', `data: ${JSON.stringify({ type: 'end', is_itinerary: true, geo })}\n\n`],
+    ['data: {"type":"token","content":"# Rome plan two"}\n\n', `data: ${JSON.stringify({ type: 'end', is_itinerary: true, is_edit: true, edit_summary: 'swap' })}\n\n`],
+  ]))
+
+  render(<App />)
+  fireEvent.click(screen.getByText('Plan a 3-day trip to Rome on a medium budget'))
+  await waitFor(() => expect(document.querySelector('.workspace__canvas').textContent).toContain('Rome plan one'))
+
+  // A follow-up edit produces a second version; the canvas follows the latest.
+  fireEvent.change(screen.getByPlaceholderText(/dream trip/i), { target: { value: 'swap the hotel' } })
+  fireEvent.click(screen.getByTitle('Send'))
+  await waitFor(() => expect(document.querySelector('.workspace__canvas').textContent).toContain('Rome plan two'))
+
+  // Clicking the first (ready) card brings that earlier version back into the canvas.
+  fireEvent.click(screen.getByText('Itinerary ready'))
+  const canvas = document.querySelector('.workspace__canvas').textContent
+  expect(canvas).toContain('Rome plan one')
+  expect(canvas).not.toContain('Rome plan two')
 })
 
 test('a new chat collapses the split back to full-width chat', async () => {

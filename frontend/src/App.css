@@ -300,6 +300,13 @@
 .itinerary-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-floating); }
 .itinerary-card:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
 
+/* the version currently shown in the canvas reads as pressed-in and accented */
+.itinerary-card--active {
+  box-shadow: var(--shadow-recessed);
+  color: var(--accent);
+}
+.itinerary-card--active .itinerary-card__title { color: var(--accent); }
+
 .itinerary-card__icon {
   display: inline-flex;
   align-items: center;

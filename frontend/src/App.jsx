@@ -22,10 +22,13 @@ export default function App() {
   const [signupPrompt, setSignupPrompt] = useState(false)
   // On mobile the split collapses to one column; this picks which one is showing.
   const [mobileView, setMobileView] = useState('chat')
+  // Which itinerary the canvas is showing; null follows the latest, an index pins an older version.
+  const [viewedItineraryIndex, setViewedItineraryIndex] = useState(null)
   const { messages, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
     onItineraryDelivered: ({ isEdit } = {}) => {
-      // A delivered plan is the thing to look at, so surface the canvas on mobile.
+      // A delivered plan is the thing to look at, so surface the canvas on mobile and follow it.
       setMobileView('canvas')
+      setViewedItineraryIndex(null)
       if (auth.user) {
         setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
         setTimeout(() => setToast(null), 4000)
@@ -59,12 +62,15 @@ export default function App() {
   // The dead air between sending and the first streamed token: research, logistics, compile.
   const planning = isStreaming && !messages.some((m) => m.role === 'ai-stream')
 
-  // The latest delivered itinerary is the canvas artifact; its presence is what splits the view.
-  let latestItinerary = null
+  // The presence of an itinerary is what splits the view. The canvas follows the latest by default,
+  // but an older ItineraryCard can pin its own version back into the canvas.
+  let latestItineraryIndex = -1
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].isItinerary) { latestItinerary = messages[i]; break }
+    if (messages[i].isItinerary) { latestItineraryIndex = i; break }
   }
-  const split = !!latestItinerary
+  const split = latestItineraryIndex >= 0
+  const viewedIndex = messages[viewedItineraryIndex]?.isItinerary ? viewedItineraryIndex : latestItineraryIndex
+  const viewedItinerary = split ? messages[viewedIndex] : null
 
   // Sign out also resets the chat so the next person does not inherit the session.
   const handleSignOut = () => {
@@ -106,7 +112,13 @@ export default function App() {
     <div className="chat-area">
       {messages.map((m, i) =>
         m.isItinerary ? (
-          <ItineraryCard key={i} isUpdated={m.isUpdated} summary={m.updatedSummary} onView={() => setMobileView('canvas')} />
+          <ItineraryCard
+            key={i}
+            isUpdated={m.isUpdated}
+            summary={m.updatedSummary}
+            isActive={i === viewedIndex}
+            onView={() => { setViewedItineraryIndex(i); setMobileView('canvas') }}
+          />
         ) : (
           <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} isUpdated={m.isUpdated} updatedSummary={m.updatedSummary} />
         ),
@@ -151,7 +163,7 @@ export default function App() {
             {inputBar}
           </div>
           <div className={`workspace__canvas ${mobileView === 'canvas' ? 'is-active' : ''}`}>
-            <Canvas itinerary={latestItinerary} geo={itineraryGeo} />
+            <Canvas itinerary={viewedItinerary} geo={itineraryGeo} />
           </div>
         </div>
       ) : (
