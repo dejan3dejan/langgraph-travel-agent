@@ -790,7 +790,7 @@
    instead of dead-center where they would cover the map and legend. */
 .app--split .toast,
 .app--split .signup-prompt {
-  left: 24px;
+  left: max(24px, calc(50vw - 600px));
   transform: none;
 }
 
