@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import Canvas from '../components/Canvas'
 
 // Map is lazy and pulls in Leaflet, so stub it; its own behavior is covered by Map.test.
@@ -25,6 +25,16 @@ test('renders the day cards and the map alongside the itinerary', async () => {
   render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1' }} geo={GEO} />)
   expect(screen.getByText('Ancient core')).toBeInTheDocument()
   expect(await screen.findByTestId('canvas-map')).toHaveTextContent('map')
+})
+
+test('copies the itinerary markdown to the clipboard', async () => {
+  const writeText = vi.fn().mockResolvedValue()
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+
+  render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1' }} geo={GEO} />)
+  fireEvent.click(screen.getByRole('button', { name: /copy/i }))
+
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('# Trip to Rome\n## Day 1'))
 })
 
 test('passes the edit summary through to the itinerary', () => {

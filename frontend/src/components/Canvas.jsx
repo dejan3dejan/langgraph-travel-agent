@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import Message from './Message'
 import DayCards from './DayCards'
 import './Canvas.css'
@@ -11,11 +11,24 @@ const Map = lazy(() => import('./Map'))
 export default function Canvas({ itinerary, geo }) {
   const heading = itinerary?.content?.match(/^#\s+(.+)$/m)?.[1]
   const title = heading || 'Your itinerary'
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    if (!itinerary?.content) return
+    await navigator.clipboard.writeText(itinerary.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
     <div className="canvas">
       <header className="canvas__header">
         <h2 className="canvas__title">{title}</h2>
+        {itinerary && (
+          <button type="button" className="canvas__action" onClick={copy} title="Copy itinerary">
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        )}
       </header>
 
       <div className="canvas__map">

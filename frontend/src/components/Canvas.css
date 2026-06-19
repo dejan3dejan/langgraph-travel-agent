@@ -11,17 +11,41 @@
 
 .canvas__header {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-dark);
 }
 
 .canvas__title {
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-body);
   font-weight: 800;
   font-size: 1.15rem;
   letter-spacing: -0.02em;
   color: var(--text);
 }
+
+/* small pressable key for header actions (copy, and room for more later) */
+.canvas__action {
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 7px 14px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s var(--ease-spring), color 0.2s, box-shadow 0.2s;
+}
+
+.canvas__action:hover { color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow-floating); }
+.canvas__action:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
 
 /* The map stays pinned below the header while the itinerary scrolls, so it never drifts off. */
 .canvas__map {
