@@ -37,6 +37,22 @@ test('copies the itinerary markdown to the clipboard', async () => {
   await waitFor(() => expect(writeText).toHaveBeenCalledWith('# Trip to Rome\n## Day 1'))
 })
 
+test('regenerate action calls onRegenerate', () => {
+  const onRegenerate = vi.fn()
+  render(<Canvas itinerary={{ content: '# Trip to Rome' }} geo={GEO} onRegenerate={onRegenerate} isStreaming={false} />)
+  fireEvent.click(screen.getByRole('button', { name: /regenerate/i }))
+  expect(onRegenerate).toHaveBeenCalledTimes(1)
+})
+
+test('regenerate shows an in-progress state and is disabled while streaming', () => {
+  const onRegenerate = vi.fn()
+  render(<Canvas itinerary={{ content: '# Trip to Rome' }} geo={GEO} onRegenerate={onRegenerate} isStreaming />)
+  const btn = screen.getByRole('button', { name: /regenerating/i })
+  expect(btn).toBeDisabled()
+  fireEvent.click(btn)
+  expect(onRegenerate).not.toHaveBeenCalled()
+})
+
 test('passes the edit summary through to the itinerary', () => {
   render(
     <Canvas

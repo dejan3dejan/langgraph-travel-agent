@@ -24,7 +24,7 @@ export default function App() {
   const [mobileView, setMobileView] = useState('chat')
   // Which itinerary the canvas is showing; null follows the latest, an index pins an older version.
   const [viewedItineraryIndex, setViewedItineraryIndex] = useState(null)
-  const { messages, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
+  const { messages, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate } = useChat({
     onItineraryDelivered: ({ isEdit } = {}) => {
       // A delivered plan is the thing to look at, so surface the canvas on mobile and follow it.
       setMobileView('canvas')
@@ -163,7 +163,7 @@ export default function App() {
             {inputBar}
           </div>
           <div className={`workspace__canvas ${mobileView === 'canvas' ? 'is-active' : ''}`}>
-            <Canvas itinerary={viewedItinerary} geo={itineraryGeo} />
+            <Canvas itinerary={viewedItinerary} geo={itineraryGeo} onRegenerate={regenerate} isStreaming={isStreaming} />
           </div>
         </div>
       ) : (

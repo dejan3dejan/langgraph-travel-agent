@@ -103,6 +103,21 @@ test('an older itinerary card re-opens that version in the canvas', async () => 
   expect(canvas).not.toContain('Rome plan two')
 })
 
+test('regenerate in the canvas streams a fresh plan and swaps the canvas to it', async () => {
+  const geo = { hotel: null, days: [{ day: 1, title: 'Day one', places: [] }] }
+  vi.stubGlobal('fetch', queuedFetch([
+    ['data: {"type":"token","content":"# Rome plan one"}\n\n', `data: ${JSON.stringify({ type: 'end', is_itinerary: true, geo })}\n\n`],
+    ['data: {"type":"token","content":"# Rome plan two"}\n\n', `data: ${JSON.stringify({ type: 'end', is_itinerary: true, is_edit: false, geo })}\n\n`],
+  ]))
+
+  render(<App />)
+  fireEvent.click(screen.getByText('Plan a 3-day trip to Rome on a medium budget'))
+  await waitFor(() => expect(document.querySelector('.workspace__canvas').textContent).toContain('Rome plan one'))
+
+  fireEvent.click(screen.getByRole('button', { name: /regenerate/i }))
+  await waitFor(() => expect(document.querySelector('.workspace__canvas').textContent).toContain('Rome plan two'))
+})
+
 test('a new chat collapses the split back to full-width chat', async () => {
   const geo = { hotel: null, days: [{ day: 1, title: 'Day one', places: [] }] }
   vi.stubGlobal('fetch', streamingFetch([

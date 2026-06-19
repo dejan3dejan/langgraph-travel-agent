@@ -335,6 +335,36 @@ test('C2: a plain follow-up reply does not wipe the map', async () => {
   expect(result.current.itineraryGeo).toEqual(GEO)
 })
 
+test('regenerate streams a fresh plan, refreshes the map, and is not an edit', async () => {
+  vi.stubGlobal('fetch', planThenEnd({ geo: GEO }))
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome')
+  })
+  await waitFor(() => expect(result.current.itineraryGeo).toEqual(GEO))
+
+  const NEW_GEO = {
+    hotel: null,
+    days: [{ day: 1, zone: 'far', label: 'Fresh', places: [{ name: 'Y', lat: 3, lon: 4, kind: 'activity' }] }],
+  }
+  const regen = streamingFetch([
+    'data: {"type":"token","content":"# Trip to Rome, take two"}\n\n',
+    `data: ${JSON.stringify({ type: 'end', is_itinerary: true, is_edit: false, geo: NEW_GEO })}\n\n`,
+  ])
+  vi.stubGlobal('fetch', regen)
+  await act(async () => {
+    await result.current.regenerate()
+  })
+
+  await waitFor(() => expect(result.current.itineraryGeo).toEqual(NEW_GEO))
+  const ai = result.current.messages.filter((m) => m.role === 'ai' && m.isItinerary).pop()
+  expect(ai.content).toContain('take two')
+  expect(ai.isUpdated).toBe(false)
+  // It sends a fresh-plan instruction the pipeline keys on, not a replay of the original prompt.
+  const body = JSON.parse(regen.mock.calls[0][1].body)
+  expect(body.message.toLowerCase()).toMatch(/regenerate|from scratch/)
+})
+
 test('C2: newChat clears the map', async () => {
   vi.stubGlobal('fetch', planThenEnd({ geo: GEO }))
   const { result } = renderHook(() => useChat())

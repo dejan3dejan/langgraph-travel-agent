@@ -8,7 +8,7 @@ const Map = lazy(() => import('./Map'))
 
 // The persistent artifact pane. The title and map stay pinned at the top while the itinerary text
 // and day cards scroll underneath, so the map never scrolls out of reach.
-export default function Canvas({ itinerary, geo }) {
+export default function Canvas({ itinerary, geo, onRegenerate, isStreaming }) {
   const heading = itinerary?.content?.match(/^#\s+(.+)$/m)?.[1]
   const title = heading || 'Your itinerary'
   const [copied, setCopied] = useState(false)
@@ -24,6 +24,17 @@ export default function Canvas({ itinerary, geo }) {
     <div className="canvas">
       <header className="canvas__header">
         <h2 className="canvas__title">{title}</h2>
+        {itinerary && onRegenerate && (
+          <button
+            type="button"
+            className="canvas__action"
+            onClick={onRegenerate}
+            disabled={isStreaming}
+            title="Build a fresh plan from scratch"
+          >
+            {isStreaming ? 'Regenerating' : 'Regenerate'}
+          </button>
+        )}
         {itinerary && (
           <button type="button" className="canvas__action" onClick={copy} title="Copy itinerary">
             {copied ? 'Copied' : 'Copy'}

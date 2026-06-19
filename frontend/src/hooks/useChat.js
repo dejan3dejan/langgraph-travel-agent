@@ -228,5 +228,13 @@ export function useChat({ onItineraryDelivered } = {}) {
     if (lastTextRef.current) return sendMessage(lastTextRef.current, { isRetry: true })
   }, [sendMessage])
 
-  return { messages, statuses, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry }
+  // Regenerate sends a fresh-plan instruction rather than replaying the original prompt. A plan is
+  // often built over several interview turns, so there is no single prompt to replay, and the
+  // pipeline keys on these words: a post-plan message matching them re-runs the full research and
+  // compile pass (fresh map/geo, is_edit stays false) instead of editing the prior plan in place.
+  const regenerate = useCallback(() => {
+    return sendMessage('Regenerate this plan from scratch with fresh ideas.')
+  }, [sendMessage])
+
+  return { messages, statuses, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate }
 }

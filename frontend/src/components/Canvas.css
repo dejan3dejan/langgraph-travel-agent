@@ -46,6 +46,7 @@
 
 .canvas__action:hover { color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow-floating); }
 .canvas__action:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
+.canvas__action:disabled { cursor: default; color: var(--text-muted); box-shadow: var(--shadow-pressed); transform: none; opacity: 0.7; }
 
 /* The map stays pinned below the header while the itinerary scrolls, so it never drifts off. */
 .canvas__map {
