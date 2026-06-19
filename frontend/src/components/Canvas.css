@@ -1,0 +1,23 @@
+.canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 4px 8px;
+}
+
+/* The itinerary fills the pane here rather than sitting as a chat bubble, so drop the chat
+   alignment and avatar treatment. */
+.canvas .message {
+  max-width: 100%;
+  align-self: stretch;
+}
+
+.canvas .message__avatar { display: none; }
+
+.canvas .message__bubble {
+  width: 100%;
+  box-shadow: var(--shadow-recessed);
+}
+
+/* The map gets more room in the canvas than it had inline in the chat. */
+.canvas .map-view__canvas { height: 420px; }
