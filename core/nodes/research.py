@@ -52,6 +52,7 @@ _RESEARCH_CONFIG = {
         "freshness_days": 30,
         "state_key": "food_data",
         "node_name": "research_food",
+        "count": 6,
     },
     "activities": {
         "schema_class": Activity,
@@ -61,6 +62,7 @@ _RESEARCH_CONFIG = {
         "freshness_days": 45,
         "state_key": "activity_data",
         "node_name": "research_activity",
+        "count": 8,
     },
     "hotels": {
         "schema_class": Hotel,
@@ -70,6 +72,7 @@ _RESEARCH_CONFIG = {
         "freshness_days": 14,
         "state_key": "hotel_data",
         "node_name": "research_hotel",
+        "count": 3,
     },
 }
 
@@ -94,6 +97,10 @@ def _build_search_prompt(category: str, dest: str, details: dict) -> str:
     """Build the LLM research prompt for a category."""
     hard, soft = render_constraints(details.get("constraints"))
     constraints = f"Must satisfy: {hard or 'none'}; prefer: {soft or 'none'}"
+    # Enough places that a multi-day itinerary has something to pin on each day's map. A generous
+    # fixed count rather than per-day scaling, because the semantic cache keys on a duration-less
+    # query, so a per-day count would just be reused across trip lengths anyway.
+    n = _RESEARCH_CONFIG[category]["count"]
     num_travelers = details.get("num_travelers", 1)
     age_range = details.get("age_range", "adults")
     budget = details.get("budget", "Medium")
@@ -108,7 +115,7 @@ def _build_search_prompt(category: str, dest: str, details: dict) -> str:
         }.get(age_range, "")
 
         return f"""
-    Use Google Search to find 3 REAL, currently operating restaurants in {dest}.
+    Use Google Search to find {n} REAL, currently operating restaurants in {dest}.
 
     TRAVELER PROFILE:
     - Number of travelers: {num_travelers}
@@ -136,7 +143,7 @@ def _build_search_prompt(category: str, dest: str, details: dict) -> str:
         activity_focus = _get_activity_focus(trip_type, age_range, interests)
 
         return f"""
-    Use Google Search to find 3 REAL activities/attractions in {dest}.
+    Use Google Search to find {n} REAL activities/attractions in {dest}.
 
     TRAVELER PROFILE:
     - Age range: {age_range}
@@ -157,7 +164,7 @@ def _build_search_prompt(category: str, dest: str, details: dict) -> str:
 
     else:
         return f"""
-    Use Google Search to find 3 REAL hotels in {dest}.
+    Use Google Search to find {n} REAL hotels in {dest}.
 
     REQUIREMENTS:
     - Budget level: {budget}
