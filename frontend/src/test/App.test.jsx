@@ -118,6 +118,26 @@ test('regenerate in the canvas streams a fresh plan and swaps the canvas to it',
   await waitFor(() => expect(document.querySelector('.workspace__canvas').textContent).toContain('Rome plan two'))
 })
 
+test('regenerate does not re-nag the signup nudge after the first plan (anonymous)', async () => {
+  const geo = { hotel: null, days: [{ day: 1, title: 'Day one', places: [] }] }
+  vi.stubGlobal('fetch', queuedFetch([
+    ['data: {"type":"token","content":"# Rome plan one"}\n\n', `data: ${JSON.stringify({ type: 'end', is_itinerary: true, geo })}\n\n`],
+    ['data: {"type":"token","content":"# Rome plan two"}\n\n', `data: ${JSON.stringify({ type: 'end', is_itinerary: true, is_edit: false, geo })}\n\n`],
+  ]))
+
+  render(<App />)
+  fireEvent.click(screen.getByText('Plan a 3-day trip to Rome on a medium budget'))
+  // The first plan nudges signup once; the user dismisses it.
+  await waitFor(() => expect(screen.getByText(/save this trip/i)).toBeInTheDocument())
+  fireEvent.click(screen.getByLabelText('Dismiss'))
+  expect(screen.queryByText(/save this trip/i)).toBeNull()
+
+  // Regenerating produces another fresh plan but must not re-open the dismissed nudge.
+  fireEvent.click(screen.getByRole('button', { name: /regenerate/i }))
+  await waitFor(() => expect(document.querySelector('.workspace__canvas').textContent).toContain('Rome plan two'))
+  expect(screen.queryByText(/save this trip/i)).toBeNull()
+})
+
 test('a new chat collapses the split back to full-width chat', async () => {
   const geo = { hotel: null, days: [{ day: 1, title: 'Day one', places: [] }] }
   vi.stubGlobal('fetch', streamingFetch([

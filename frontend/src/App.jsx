@@ -24,6 +24,9 @@ export default function App() {
   const [mobileView, setMobileView] = useState('chat')
   // Which itinerary the canvas is showing; null follows the latest, an index pins an older version.
   const [viewedItineraryIndex, setViewedItineraryIndex] = useState(null)
+  // Nudge an anonymous user to sign up once per conversation, not on every regenerate, and never
+  // after they dismiss it. Resets when a new chat clears the messages.
+  const signupNudgedRef = useRef(false)
   const { messages, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate } = useChat({
     onItineraryDelivered: ({ isEdit } = {}) => {
       // A delivered plan is the thing to look at, so surface the canvas on mobile and follow it.
@@ -32,8 +35,9 @@ export default function App() {
       if (auth.user) {
         setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
         setTimeout(() => setToast(null), 4000)
-      } else if (!isEdit) {
-        // Only nudge signup on a first plan, not on every follow-up edit.
+      } else if (!isEdit && !signupNudgedRef.current) {
+        // Nudge signup once per conversation, not on every fresh plan (regenerate) or follow-up edit.
+        signupNudgedRef.current = true
         setSignupPrompt(true)
       }
     },
@@ -47,6 +51,11 @@ export default function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, planningStage])
+
+  // A new chat (or sign-out) clears the messages, so let the next plan nudge signup again.
+  useEffect(() => {
+    if (messages.length === 0) signupNudgedRef.current = false
+  }, [messages.length])
 
   useEffect(() => {
     const onExpired = () => {
