@@ -103,8 +103,62 @@
 .toolbar {
   flex-shrink: 0;
   display: flex;
+  align-items: center;
+  gap: 10px;
   justify-content: flex-end;
   padding: 0 6px 8px;
+}
+
+/* Split workspace: chat on the left, the persistent itinerary canvas on the right. Each column
+   owns its own scroll, so the itinerary no longer scrolls away with the conversation. */
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 20px;
+}
+
+.workspace__chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.workspace__canvas {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* Segmented control to flip between chat and canvas; only shown when the split collapses on mobile. */
+.view-toggle {
+  display: none;
+  margin-right: auto;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-recessed);
+}
+
+.view-toggle__btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color 0.2s, box-shadow 0.2s;
+}
+
+.view-toggle__btn.is-active {
+  color: var(--accent);
+  box-shadow: var(--shadow-card);
 }
 
 /* Messages: bolted panels. */
@@ -222,6 +276,54 @@
 }
 
 @keyframes blink { to { opacity: 0; } }
+
+/* Itinerary reference: a slim raised key in the chat that points at the canvas artifact. */
+.itinerary-card {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 88%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  animation: msg-in 0.5s var(--ease-out-expo) both;
+  transition: transform 0.2s var(--ease-spring), box-shadow 0.2s;
+}
+
+.itinerary-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-floating); }
+.itinerary-card:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
+
+.itinerary-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--bg);
+  box-shadow: var(--shadow-recessed);
+}
+
+.itinerary-card__body { display: flex; flex-direction: column; gap: 2px; }
+
+.itinerary-card__title {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.itinerary-card__hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
 
 /* Status pills: LED indicators in a recessed strip. */
 
@@ -448,6 +550,18 @@
 }
 
 /* Responsive. */
+
+/* Below this width the side-by-side split is too cramped, so collapse to one column and let the
+   toggle swap between the chat and the itinerary canvas. */
+@media (max-width: 900px) {
+  .app--split { max-width: 960px; }
+  .workspace { grid-template-columns: 1fr; }
+  .workspace__chat,
+  .workspace__canvas { display: none; }
+  .workspace__chat.is-active { display: flex; }
+  .workspace__canvas.is-active { display: block; }
+  .view-toggle { display: inline-flex; }
+}
 
 @media (max-width: 640px) {
   .logo-text { font-size: 1.6rem; }

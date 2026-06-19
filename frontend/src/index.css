@@ -125,10 +125,23 @@ body::after {
   display: flex;
   flex-direction: column;
   height: 100dvh;
+  width: 100%;
+}
+
+/* The layout column. Caps narrow for chat-only states and widens once the canvas appears, so the
+   split has room to breathe without the pre-plan view stretching too wide. */
+.app {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   max-width: 960px;
   margin: 0 auto;
   padding: 0 20px;
+  display: flex;
+  flex-direction: column;
 }
+
+.app--split { max-width: 1240px; }
 
 /* recessed scrollbar groove */
 ::-webkit-scrollbar { width: 10px; }

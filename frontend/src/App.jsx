@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, lazy, Suspense } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import './App.css'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
@@ -13,17 +13,19 @@ import Landing from './components/Landing'
 import Toast from './components/Toast'
 import SignupPrompt from './components/SignupPrompt'
 import Loader from './components/Loader'
-import DayCards from './components/DayCards'
-
-// Lazy: Leaflet is heavy and only needed once a plan exists, so keep it off the first-paint bundle.
-const Map = lazy(() => import('./components/Map'))
+import Canvas from './components/Canvas'
+import ItineraryCard from './components/ItineraryCard'
 
 export default function App() {
   const auth = useAuth()
   const [toast, setToast] = useState(null)
   const [signupPrompt, setSignupPrompt] = useState(false)
+  // On mobile the split collapses to one column; this picks which one is showing.
+  const [mobileView, setMobileView] = useState('chat')
   const { messages, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry } = useChat({
     onItineraryDelivered: ({ isEdit } = {}) => {
+      // A delivered plan is the thing to look at, so surface the canvas on mobile.
+      setMobileView('canvas')
       if (auth.user) {
         setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
         setTimeout(() => setToast(null), 4000)
@@ -56,6 +58,13 @@ export default function App() {
   const showRetry = !isStreaming && messages[messages.length - 1]?.isError
   // The dead air between sending and the first streamed token: research, logistics, compile.
   const planning = isStreaming && !messages.some((m) => m.role === 'ai-stream')
+
+  // The latest delivered itinerary is the canvas artifact; its presence is what splits the view.
+  let latestItinerary = null
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].isItinerary) { latestItinerary = messages[i]; break }
+  }
+  const split = !!latestItinerary
 
   // Sign out also resets the chat so the next person does not inherit the session.
   const handleSignOut = () => {
@@ -93,8 +102,26 @@ export default function App() {
     )
   }
 
+  const chatScroll = (
+    <div className="chat-area">
+      {messages.map((m, i) =>
+        m.isItinerary ? (
+          <ItineraryCard key={i} isUpdated={m.isUpdated} summary={m.updatedSummary} onView={() => setMobileView('canvas')} />
+        ) : (
+          <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} isUpdated={m.isUpdated} updatedSummary={m.updatedSummary} />
+        ),
+      )}
+      {planning && (
+        <Loader variant={planningStage?.variant || 'compass'} label={planningStage?.line || 'Charting your trip'} />
+      )}
+      <div ref={chatEndRef} />
+    </div>
+  )
+
+  const inputBar = <InputBar onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+
   return (
-    <>
+    <div className={`app ${split ? 'app--split' : ''}`}>
       <Header
         user={auth.user}
         onSignIn={() => setAuthOpen(true)}
@@ -104,6 +131,12 @@ export default function App() {
 
       {hasMessages && (
         <div className="toolbar">
+          {split && (
+            <div className="view-toggle">
+              <button className={`view-toggle__btn ${mobileView === 'chat' ? 'is-active' : ''}`} onClick={() => setMobileView('chat')}>Chat</button>
+              <button className={`view-toggle__btn ${mobileView === 'canvas' ? 'is-active' : ''}`} onClick={() => setMobileView('canvas')}>Itinerary</button>
+            </div>
+          )}
           {showRetry && <button className="prompt-chip" onClick={retry}>Retry</button>}
           <button className="prompt-chip" onClick={newChat}>New chat</button>
         </div>
@@ -111,29 +144,22 @@ export default function App() {
 
       {!hasMessages ? (
         <Welcome onPrompt={sendMessage} />
-      ) : (
-        <div className="chat-area">
-          {messages.map((m, i) => (
-            <Message key={i} role={m.role} content={m.content} isItinerary={m.isItinerary} isUpdated={m.isUpdated} updatedSummary={m.updatedSummary} />
-          ))}
-          {itineraryGeo && <DayCards geo={itineraryGeo} />}
-          {itineraryGeo && (
-            <Suspense fallback={null}>
-              <Map geo={itineraryGeo} />
-            </Suspense>
-          )}
-          {planning && (
-            <Loader variant={planningStage?.variant || 'compass'} label={planningStage?.line || 'Charting your trip'} />
-          )}
-          <div ref={chatEndRef} />
+      ) : split ? (
+        <div className="workspace">
+          <div className={`workspace__chat ${mobileView === 'chat' ? 'is-active' : ''}`}>
+            {chatScroll}
+            {inputBar}
+          </div>
+          <div className={`workspace__canvas ${mobileView === 'canvas' ? 'is-active' : ''}`}>
+            <Canvas itinerary={latestItinerary} geo={itineraryGeo} />
+          </div>
         </div>
+      ) : (
+        chatScroll
       )}
 
-      <InputBar
-        onSend={sendMessage}
-        isStreaming={isStreaming}
-        onStop={stopStreaming}
-      />
+      {/* In the split, the input lives inside the chat column; everywhere else it sits at the bottom. */}
+      {!split && inputBar}
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
       {signupPrompt && !auth.user && (
@@ -153,6 +179,6 @@ export default function App() {
           onClose={() => setSidebarOpen(false)}
         />
       )}
-    </>
+    </div>
   )
 }
