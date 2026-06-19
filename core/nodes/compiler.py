@@ -395,14 +395,13 @@ NARRATIVE STYLE GUIDE
 ═══════════════════════════════════════════════════════════════
 🎯 CRITICAL RULES FOR SMART ITINERARY
 ═══════════════════════════════════════════════════════════════
-1. **USE THE ZONE GROUPS ABOVE!** Each day should focus on ONE zone:
-   - Day 1: Explore "near_hotel" places (easy start, jet lag friendly)
-   - Day 2: Tackle "medium_distance" zone
-   - Day 3+: Plan "far_from_hotel" or "day_trip_territory" as dedicated excursions
+1. **FILL EVERY DAY OF THE TRIP.** Produce one section per day for the full duration, and anchor every
+   day on at least one real researched place (plus a meal or two where it fits) so no day is left empty
+   or vague. Spread the places across ALL the days rather than cramming them into the first few and
+   leaving the rest as unstructured "free time".
 
-2. **NEVER MIX ZONES IN ONE DAY** unless absolutely necessary:
-   - BAD: Morning in near zone, afternoon 50km away, dinner back near {base_label}
-   - GOOD: Full day exploring one area, with lunch and dinner in the same zone
+2. **KEEP EACH DAY GEOGRAPHICALLY FOCUSED** using the zone groups: group nearby places on the same day,
+   and for a longer trip split a large zone across several days instead of packing it into one.
 
 3. **ALWAYS MENTION TRAVEL INFO:**
    - Distance from {base_label}
