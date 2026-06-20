@@ -28,25 +28,40 @@
   color: var(--text);
 }
 
-/* small pressable key for header actions (copy, and room for more later) */
+/* small pressable icon key for header actions (regenerate, copy) */
 .canvas__action {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
   border: none;
   border-radius: var(--r-sm);
-  padding: 7px 14px;
+  padding: 0;
   background: var(--bg);
   color: var(--text-muted);
-  font-family: var(--font-body);
-  font-size: 0.78rem;
-  font-weight: 600;
   cursor: pointer;
   box-shadow: var(--shadow-card);
   transition: transform 0.2s var(--ease-spring), color 0.2s, box-shadow 0.2s;
 }
 
+.canvas__action svg { width: 16px; height: 16px; display: block; }
+
 .canvas__action:hover { color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow-floating); }
 .canvas__action:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
 .canvas__action:disabled { cursor: default; color: var(--text-muted); box-shadow: var(--shadow-pressed); transform: none; opacity: 0.7; }
+
+/* While a regenerate streams, spin the refresh glyph in place. */
+.canvas__action--busy svg { animation: canvas-spin 0.9s linear infinite; }
+
+@keyframes canvas-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas__action--busy svg { animation: none; }
+}
 
 /* The map stays pinned below the header while the itinerary scrolls, so it never drifts off. */
 .canvas__map {

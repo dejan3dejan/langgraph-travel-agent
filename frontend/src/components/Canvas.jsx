@@ -6,9 +6,60 @@ import './Canvas.css'
 // Leaflet is heavy and only needed once a plan exists, so keep it off the first-paint bundle.
 const Map = lazy(() => import('./Map'))
 
+function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+function ShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  )
+}
+
+function UnshareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18.84 12.25 21 10.06a5 5 0 0 0-7.07-7.07L11.75 5.16" />
+      <path d="M5.17 11.75 3 13.94a5 5 0 0 0 7.07 7.07l2.18-2.18" />
+      <line x1="2" y1="2" x2="22" y2="22" />
+    </svg>
+  )
+}
+
+const SHARE_LABEL = { sharing: 'Sharing', copied: 'Link copied', error: 'Share failed' }
+
 // The persistent artifact pane. The title and map stay pinned at the top while the itinerary text
 // and day cards scroll underneath, so the map never scrolls out of reach.
-export default function Canvas({ itinerary, geo, onRegenerate, isStreaming }) {
+export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onShare, shareStatus = 'idle', onUnshare, isShared = false }) {
   const heading = itinerary?.content?.match(/^#\s+(.+)$/m)?.[1]
   const title = heading || 'Your itinerary'
   const [copied, setCopied] = useState(false)
@@ -27,17 +78,47 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming }) {
         {itinerary && onRegenerate && (
           <button
             type="button"
-            className="canvas__action"
+            className={`canvas__action ${isStreaming ? 'canvas__action--busy' : ''}`}
             onClick={onRegenerate}
             disabled={isStreaming}
+            aria-label={isStreaming ? 'Regenerating' : 'Regenerate'}
             title="Build a fresh plan from scratch"
           >
-            {isStreaming ? 'Regenerating' : 'Regenerate'}
+            <RefreshIcon />
           </button>
         )}
         {itinerary && (
-          <button type="button" className="canvas__action" onClick={copy} title="Copy itinerary">
-            {copied ? 'Copied' : 'Copy'}
+          <button
+            type="button"
+            className="canvas__action"
+            onClick={copy}
+            aria-label={copied ? 'Copied' : 'Copy'}
+            title="Copy itinerary"
+          >
+            {copied ? <CheckIcon /> : <CopyIcon />}
+          </button>
+        )}
+        {itinerary && onShare && (
+          <button
+            type="button"
+            className="canvas__action"
+            onClick={onShare}
+            disabled={shareStatus === 'sharing'}
+            aria-label={SHARE_LABEL[shareStatus] || 'Share'}
+            title="Copy a public link to this itinerary"
+          >
+            {shareStatus === 'copied' ? <CheckIcon /> : <ShareIcon />}
+          </button>
+        )}
+        {itinerary && onShare && onUnshare && isShared && (
+          <button
+            type="button"
+            className="canvas__action"
+            onClick={onUnshare}
+            aria-label="Stop sharing"
+            title="Revoke the public link"
+          >
+            <UnshareIcon />
           </button>
         )}
       </header>

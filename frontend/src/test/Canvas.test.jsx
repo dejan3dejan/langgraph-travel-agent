@@ -53,6 +53,45 @@ test('regenerate shows an in-progress state and is disabled while streaming', ()
   expect(onRegenerate).not.toHaveBeenCalled()
 })
 
+test('shows a share action only when onShare is provided', () => {
+  const { rerender } = render(<Canvas itinerary={{ content: '# Trip to Rome' }} geo={GEO} />)
+  expect(screen.queryByRole('button', { name: /share/i })).toBeNull()
+
+  rerender(<Canvas itinerary={{ content: '# Trip to Rome' }} geo={GEO} onShare={() => {}} shareStatus="idle" />)
+  expect(screen.getByRole('button', { name: /share/i })).toBeInTheDocument()
+})
+
+test('share action calls onShare', () => {
+  const onShare = vi.fn()
+  render(<Canvas itinerary={{ content: '# Trip to Rome' }} geo={GEO} onShare={onShare} shareStatus="idle" />)
+  fireEvent.click(screen.getByRole('button', { name: /share/i }))
+  expect(onShare).toHaveBeenCalledTimes(1)
+})
+
+test('share action reflects the copied status and is disabled while sharing', () => {
+  const { rerender } = render(
+    <Canvas itinerary={{ content: '# Trip' }} geo={GEO} onShare={() => {}} shareStatus="sharing" />,
+  )
+  expect(screen.getByRole('button', { name: /sharing/i })).toBeDisabled()
+
+  rerender(<Canvas itinerary={{ content: '# Trip' }} geo={GEO} onShare={() => {}} shareStatus="copied" />)
+  expect(screen.getByRole('button', { name: /link copied/i })).toBeInTheDocument()
+})
+
+test('shows a stop-sharing action only once a link is live, and it calls onUnshare', () => {
+  const onUnshare = vi.fn()
+  const { rerender } = render(
+    <Canvas itinerary={{ content: '# Trip' }} geo={GEO} onShare={() => {}} onUnshare={onUnshare} isShared={false} />,
+  )
+  expect(screen.queryByRole('button', { name: /stop sharing/i })).toBeNull()
+
+  rerender(
+    <Canvas itinerary={{ content: '# Trip' }} geo={GEO} onShare={() => {}} onUnshare={onUnshare} isShared />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /stop sharing/i }))
+  expect(onUnshare).toHaveBeenCalledTimes(1)
+})
+
 test('passes the edit summary through to the itinerary', () => {
   render(
     <Canvas
