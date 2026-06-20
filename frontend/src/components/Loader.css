@@ -87,10 +87,10 @@
   background: conic-gradient(
     from 0deg,
     var(--accent) 0deg,
-    rgba(255, 71, 87, 0) 4deg,
-    rgba(255, 71, 87, 0) 200deg,
-    rgba(255, 71, 87, 0.06) 250deg,
-    rgba(255, 71, 87, 0.42) 348deg,
+    color-mix(in srgb, var(--accent) 0%, transparent) 4deg,
+    color-mix(in srgb, var(--accent) 0%, transparent) 200deg,
+    color-mix(in srgb, var(--accent) 6%, transparent) 250deg,
+    color-mix(in srgb, var(--accent) 42%, transparent) 348deg,
     var(--accent) 360deg
   );
   animation: loader-spin 1.8s linear infinite;
