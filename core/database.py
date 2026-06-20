@@ -105,6 +105,8 @@ class SharedItinerary(Base):
     title = Column(String)
     itinerary_text = Column(Text, nullable=False)
     geo = Column(JSON, nullable=True)  # {hotel, days[]} map payload; null for text-only snapshots
+    revoke_token = Column(String, nullable=True)  # owner secret; required to delete the snapshot
+    expires_at = Column(DateTime, nullable=True)  # past this the public GET 404s; null never expires
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
