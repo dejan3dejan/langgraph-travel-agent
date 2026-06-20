@@ -1,0 +1,71 @@
+.shared {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100vh;
+  padding: 20px;
+  background: var(--bg);
+}
+
+.shared__bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shared__brand {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.shared__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shared__link {
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 8px 16px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s var(--ease-spring), color 0.2s, box-shadow 0.2s;
+}
+
+.shared__link:hover { color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow-floating); }
+.shared__link:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
+
+.shared__cta {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.shared__cta:hover { text-decoration: underline; }
+
+.shared__canvas {
+  flex: 1;
+  min-height: 0;
+}
+
+.shared--message {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text);
+  font-family: var(--font-body);
+}

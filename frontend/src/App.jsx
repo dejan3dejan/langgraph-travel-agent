@@ -3,6 +3,7 @@ import './App.css'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { useTrips } from './hooks/useTrips'
+import { useShare } from './hooks/useShare'
 import Header from './components/Header'
 import Welcome from './components/Welcome'
 import Message from './components/Message'
@@ -43,6 +44,7 @@ export default function App() {
     },
   })
   const trips = useTrips(auth.user)
+  const share = useShare()
   const [authOpen, setAuthOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [entered, setEntered] = useState(() => localStorage.getItem('atlas_entered') === '1')
@@ -172,7 +174,14 @@ export default function App() {
             {inputBar}
           </div>
           <div className={`workspace__canvas ${mobileView === 'canvas' ? 'is-active' : ''}`}>
-            <Canvas itinerary={viewedItinerary} geo={itineraryGeo} onRegenerate={regenerate} isStreaming={isStreaming} />
+            <Canvas
+              itinerary={viewedItinerary}
+              geo={itineraryGeo}
+              onRegenerate={regenerate}
+              isStreaming={isStreaming}
+              onShare={() => share.share({ itinerary_text: viewedItinerary?.content, geo: itineraryGeo })}
+              shareStatus={share.status}
+            />
           </div>
         </div>
       ) : (
