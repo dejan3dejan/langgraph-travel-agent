@@ -25,19 +25,26 @@ function FitBounds({ points }) {
   return null
 }
 
+// A point is plottable only with finite coordinates; a partially-geocoded plan can carry places
+// with no lat/lon, and Leaflet throws on (undefined, undefined).
+function hasCoords(p) {
+  return p && Number.isFinite(p.lat) && Number.isFinite(p.lon)
+}
+
 export default function Map({ geo }) {
-  if (!geo || !geo.days || geo.days.length === 0) {
+  const hotel = hasCoords(geo?.hotel) ? geo.hotel : null
+  const points = []
+  if (hotel) points.push([hotel.lat, hotel.lon])
+  ;(geo?.days || []).forEach((d) => d.places.filter(hasCoords).forEach((p) => points.push([p.lat, p.lon])))
+
+  // Nothing geocoded means nothing to plot, whether the days are missing, empty, or coordinate-less.
+  if (points.length === 0) {
     return (
       <div className="map-fallback" role="note">
         We couldn&apos;t pin this itinerary on a map. Its locations weren&apos;t geocoded.
       </div>
     )
   }
-
-  const hotel = geo.hotel
-  const points = []
-  if (hotel) points.push([hotel.lat, hotel.lon])
-  geo.days.forEach((d) => d.places.forEach((p) => points.push([p.lat, p.lon])))
 
   return (
     <div className="map-view">
@@ -54,15 +61,16 @@ export default function Map({ geo }) {
           </Marker>
         )}
 
-        {geo.days.map((d) => {
+        {(geo.days || []).map((d) => {
           const color = dayColor(d.day)
-          const stops = d.places.map((p) => [p.lat, p.lon])
+          const places = d.places.filter(hasCoords)
+          const stops = places.map((p) => [p.lat, p.lon])
           // Route line returns to the base when there is one, so each day reads as a loop.
           const line = hotel ? [[hotel.lat, hotel.lon], ...stops, [hotel.lat, hotel.lon]] : stops
           return (
             <Fragment key={d.day}>
               {line.length > 1 && <Polyline positions={line} pathOptions={{ color, weight: 3, opacity: 0.7 }} />}
-              {d.places.map((p, i) => (
+              {places.map((p, i) => (
                 <Marker key={`${d.day}-${i}`} position={[p.lat, p.lon]} icon={pin(color, d.day)}>
                   <Tooltip>{`Day ${d.day}`}</Tooltip>
                   <Popup>{p.name}</Popup>
@@ -74,7 +82,7 @@ export default function Map({ geo }) {
       </MapContainer>
 
       <ul className="map-legend">
-        {geo.days.map((d) => (
+        {(geo.days || []).map((d) => (
           <li key={d.day} className="map-legend__item">
             <span className="map-legend__swatch" style={{ background: dayColor(d.day) }} />
             {`Day ${d.day} · ${d.title || d.label}`}

@@ -39,6 +39,34 @@ test('C2.5: renders a fallback when no day has coordinates', () => {
   expect(screen.getByText(/couldn't pin this itinerary/i)).toBeInTheDocument()
 })
 
+test('renders a fallback when days exist but no place has coordinates', () => {
+  const NO_COORDS = {
+    hotel: null,
+    days: [{ day: 1, title: 'Arrival', places: [{ name: 'Hotel check-in', kind: 'activity' }] }],
+  }
+  render(<Map geo={NO_COORDS} />)
+  expect(screen.getByText(/couldn't pin this itinerary/i)).toBeInTheDocument()
+})
+
+test('skips coordinate-less places but still plots the geocoded ones in a partial day', () => {
+  const PARTIAL = {
+    hotel: null,
+    days: [
+      {
+        day: 1,
+        title: 'Mixed',
+        places: [
+          { name: 'Pantheon', lat: 41.898, lon: 12.476, kind: 'activity' },
+          { name: 'Ungeocoded spot', kind: 'activity' },
+        ],
+      },
+    ],
+  }
+  render(<Map geo={PARTIAL} />)
+  // only the place with coordinates becomes a marker
+  expect(screen.getAllByTestId('marker')).toHaveLength(1)
+})
+
 test('C2.4: renders hotel + per-place markers, a route line per day, and a day legend', () => {
   render(<Map geo={TWO_DAYS} />)
   // hotel (1) + day 1 (1) + day 2 (2) = 4 markers
