@@ -202,6 +202,14 @@ test('A1: toUiMessages maps roles and marks itineraries', () => {
   ])
 })
 
+test('drops a stale session id on mount so a fresh request is not treated as an edit', () => {
+  // A reload leaves the session id in localStorage but the visible chat empty; reusing it would make
+  // a brand-new planning request land as an edit of the old plan.
+  localStorage.setItem('atlas_session_id', 'stale-123')
+  renderHook(() => useChat())
+  expect(localStorage.getItem('atlas_session_id')).toBeNull()
+})
+
 test('A1: loadSession hydrates messages and adopts the session', () => {
   const { result } = renderHook(() => useChat())
   act(() => {

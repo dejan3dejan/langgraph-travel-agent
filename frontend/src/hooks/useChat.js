@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { stageFor } from '../planningStages'
 
 // Map stored {user, model} history into UI message shape, marking itinerary messages so they
@@ -29,6 +29,16 @@ export function useChat({ onItineraryDelivered } = {}) {
   const abortRef = useRef(null)
   const sessionIdRef = useRef(localStorage.getItem('atlas_session_id') || null)
   const lastTextRef = useRef('')
+
+  // A persisted session id with an empty visible chat is a stale carry-over from a previous page
+  // load. Reusing it would make a brand-new planning request land as an edit of the old plan, so
+  // start a fresh session. An authed user can still reopen a saved trip from the sidebar.
+  useEffect(() => {
+    if (sessionIdRef.current && messages.length === 0) {
+      sessionIdRef.current = null
+      localStorage.removeItem('atlas_session_id')
+    }
+  }, [])
 
   const sendMessage = useCallback(async (text, opts = {}) => {
     if (!text.trim() || isStreaming) return
