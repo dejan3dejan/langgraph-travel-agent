@@ -29,8 +29,8 @@ async def export_pdf(req: ExportRequest) -> Response:
     name = sanitize_pdf_filename(req.filename)
     try:
         pdf = await render_pdf(req.html)
-    except PdfRendererUnavailable:
-        logger.error("PDF export requested but the renderer is unavailable")
+    except PdfRendererUnavailable as e:
+        logger.error(f"PDF export requested but the renderer is unavailable: {e}")
         raise HTTPException(status_code=503, detail="PDF export is unavailable.") from None
     except Exception as e:
         logger.error(f"PDF render failed: {e}")

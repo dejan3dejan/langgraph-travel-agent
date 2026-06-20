@@ -71,6 +71,7 @@ def _render_sync(html: str) -> bytes:
     except PdfRendererUnavailable:
         raise
     except Exception as e:
+        logger.error(f"Chromium render error: {e}")
         # A missing browser binary surfaces here (launch fails), not as ImportError above.
         if "Executable doesn't exist" in str(e) or "playwright install" in str(e):
             raise PdfRendererUnavailable("Chromium is not installed for Playwright") from e
