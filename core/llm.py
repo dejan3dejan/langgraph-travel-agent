@@ -28,27 +28,42 @@ def _gemini(model: str, temperature: float):
     return ChatGoogleGenerativeAI(model=model, google_api_key=GEMINI_API_KEY, temperature=temperature)
 
 
-def get_llm_for_role(role: str):
+def get_llm_for_role(role: str, temperature: float | None = None):
     """Return the best-fit LLM for each pipeline role.
 
     Hybrid OpenAI + Gemini when USE_GEMINI is True; OpenAI-only otherwise
-    (research loses live Google Search grounding in OpenAI-only mode).
+    (research loses live Google Search grounding in OpenAI-only mode). Pass
+    temperature to override the role default (a regenerate raises it to diversify).
     """
+
+    def t(default: float) -> float:
+        return default if temperature is None else temperature
+
     if role == "interviewer":
-        return _openai("gpt-4o-mini", temperature=0.3)
+        return _openai("gpt-4o-mini", temperature=t(0.3))
 
     if role == "compiler":
-        return _openai("gpt-4o-mini", temperature=0.7)
+        return _openai("gpt-4o-mini", temperature=t(0.7))
 
     if role == "research":
-        return _gemini("gemini-2.5-flash", temperature=0.2) if USE_GEMINI else _openai("gpt-4o-mini", temperature=0.3)
+        return (
+            _gemini("gemini-2.5-flash", temperature=t(0.2))
+            if USE_GEMINI
+            else _openai("gpt-4o-mini", temperature=t(0.3))
+        )
 
     if role == "extraction":
-        return _gemini("gemini-2.5-flash-lite", temperature=0) if USE_GEMINI else _openai("gpt-4o-mini", temperature=0)
+        return (
+            _gemini("gemini-2.5-flash-lite", temperature=t(0))
+            if USE_GEMINI
+            else _openai("gpt-4o-mini", temperature=t(0))
+        )
 
     if role == "critic":
         return (
-            _gemini("gemini-2.5-flash-lite", temperature=0.1) if USE_GEMINI else _openai("gpt-4o-mini", temperature=0.1)
+            _gemini("gemini-2.5-flash-lite", temperature=t(0.1))
+            if USE_GEMINI
+            else _openai("gpt-4o-mini", temperature=t(0.1))
         )
 
-    return _openai("gpt-4o-mini", temperature=0)
+    return _openai("gpt-4o-mini", temperature=t(0))
