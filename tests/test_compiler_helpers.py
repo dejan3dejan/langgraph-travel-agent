@@ -7,6 +7,7 @@ from core.nodes.compiler import (
     _base_label,
     _build_day_assignment_prompt,
     _build_edit_prompt,
+    _build_edit_summary_prompt,
     _build_regenerate_directive,
     _origin_known,
     _transport_section,
@@ -165,3 +166,11 @@ def test_regenerate_directive_demands_difference_and_embeds_prior():
     out = _build_regenerate_directive(prior)
     assert "different" in out.lower()
     assert prior in out
+
+
+def test_edit_summary_prompt_includes_instruction_and_asks_for_a_short_past_tense_label():
+    p = _build_edit_summary_prompt("swap the Tuesday restaurant")
+    assert "swap the Tuesday restaurant" in p
+    low = p.lower()
+    assert "past" in low
+    assert "8 words" in low

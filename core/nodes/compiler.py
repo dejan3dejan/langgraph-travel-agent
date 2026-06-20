@@ -228,6 +228,35 @@ Output the full revised itinerary in the same Markdown format, starting with its
 Output ONLY the raw Markdown. No preamble, no code fences."""
 
 
+_EDIT_SUMMARY_TASK = """Summarize the change the traveler asked for as a short, past-tense phrase for a
+"what changed" label. At most 8 words, no quotes, no trailing period.
+
+Examples:
+- can you swap the tuesday restaurant -> Swapped the Tuesday restaurant
+- make day 2 a bit less packed -> Lightened day 2's schedule
+
+CHANGE REQUEST:
+{instruction}"""
+
+
+def _build_edit_summary_prompt(edit_instruction: str) -> str:
+    """Prompt for a short 'what changed' label, so the card shows a clean past-tense summary instead
+    of the traveler's raw instruction."""
+    return _EDIT_SUMMARY_TASK.format(instruction=edit_instruction)
+
+
+async def _summarize_edit(edit_instruction: str) -> str:
+    """One short past-tense summary of the requested change for the itinerary card. Degrades to the
+    raw instruction on any failure so the card is never blank."""
+    llm = get_llm_for_role("extraction")
+    try:
+        resp = await llm.ainvoke([HumanMessage(content=_build_edit_summary_prompt(edit_instruction))])
+        return (resp.content or "").strip() or edit_instruction
+    except Exception as e:
+        logger.warning(f"Edit-summary generation failed, using the raw instruction: {e}")
+        return edit_instruction
+
+
 def _build_day_assignment_prompt(draft_markdown: str, place_names: list[str]) -> str:
     """Prompt for the structured day pass: read the itinerary that was just written and report, per
     day, which known places it visits and in what order. Stops must be drawn only from the provided
@@ -262,8 +291,10 @@ async def _compile_edit(state: AgentState, t0: float) -> dict:
         ],
         config={"tags": ["final_itinerary"]},
     )
+    edit_summary = await _summarize_edit(state["edit_instruction"])
     return {
         "draft_itinerary": response.content,
+        "edit_summary": edit_summary,
         "iteration_count": state.get("iteration_count", 0) + 1,
         "next_node": "approved",
         "debug_logs": [log_usage("compiler", t0, response)],

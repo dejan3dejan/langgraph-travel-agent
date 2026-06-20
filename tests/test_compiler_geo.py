@@ -154,6 +154,41 @@ async def test_compiler_emits_no_geo_on_an_edit(monkeypatch):
     assert "itinerary_geo" not in result
 
 
+async def test_compile_edit_returns_a_change_summary(monkeypatch):
+    # The card's "what changed" line comes from the compiler, not the raw user instruction.
+    _patch_llm(monkeypatch, markdown="# Revised\n")
+    state = {
+        "edit_instruction": "swap the Tuesday restaurant",
+        "base_itinerary": "# Trip\n## Day 1",
+        "iteration_count": 1,
+    }
+
+    result = await compiler_node(state)
+
+    assert result.get("edit_summary")
+
+
+async def test_summarize_edit_uses_model_output(monkeypatch):
+    class _Summarizer:
+        async def ainvoke(self, messages, config=None):
+            return _FakeResponse("Swapped the Tuesday restaurant")
+
+    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role, temperature=None: _Summarizer())
+    out = await compiler_mod._summarize_edit("can you please swap the tuesday restaurant")
+    assert out == "Swapped the Tuesday restaurant"
+
+
+async def test_summarize_edit_falls_back_to_instruction_on_failure(monkeypatch):
+    # Fail open: a flaky summary call must never blank the card; degrade to the raw instruction.
+    class _Boom:
+        async def ainvoke(self, messages, config=None):
+            raise RuntimeError("summary llm down")
+
+    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role, temperature=None: _Boom())
+    out = await compiler_mod._summarize_edit("swap the Tuesday restaurant")
+    assert out == "swap the Tuesday restaurant"
+
+
 async def test_compiler_prompt_includes_constraints(monkeypatch):
     # Allergies/dietary captured into constraints must reach the writer so the plan honors them.
     captured = {}

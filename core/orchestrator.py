@@ -109,10 +109,14 @@ class TravelOrchestrator:
 
             elif kind == "on_chain_end" and event.get("name") == "compiler":
                 # The compiler emits the structured map payload (per-day coords) on a fresh plan; an
-                # in-place edit returns none, so the client keeps the map it already has.
+                # in-place edit returns none, so the client keeps the map it already has. An edit also
+                # returns a short "what changed" summary, which replaces the raw-instruction fallback.
                 out = event["data"].get("output")
-                if isinstance(out, dict) and out.get("itinerary_geo"):
-                    captured_geo = out["itinerary_geo"]
+                if isinstance(out, dict):
+                    if out.get("itinerary_geo"):
+                        captured_geo = out["itinerary_geo"]
+                    if out.get("edit_summary"):
+                        captured_edit_summary = out["edit_summary"]
 
             elif kind == "on_chat_model_stream":
                 if "final_itinerary" in event.get("tags", []):
