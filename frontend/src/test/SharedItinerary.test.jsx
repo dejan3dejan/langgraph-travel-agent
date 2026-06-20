@@ -42,6 +42,14 @@ test('offers a copy-link action for the current page url', async () => {
   await waitFor(() => expect(writeText).toHaveBeenCalledWith(window.location.href))
 })
 
+test('marks the public page noindex so it is never crawled', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => SNAPSHOT })))
+
+  render(<SharedItinerary id="abc123" />)
+  const meta = document.head.querySelector('meta[name="robots"]')
+  expect(meta?.getAttribute('content')).toMatch(/noindex/)
+})
+
 test('shows a not-found message when the snapshot is missing', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) })))
 

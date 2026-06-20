@@ -9,6 +9,16 @@ export default function SharedItinerary({ id }) {
   const [status, setStatus] = useState('loading')
   const [linkCopied, setLinkCopied] = useState(false)
 
+  // Keep shared links out of search indexes: anyone with the link can view, but a leaked link
+  // should not become a public, crawlable page.
+  useEffect(() => {
+    const meta = document.createElement('meta')
+    meta.name = 'robots'
+    meta.content = 'noindex,nofollow'
+    document.head.appendChild(meta)
+    return () => meta.remove()
+  }, [])
+
   useEffect(() => {
     let active = true
     setStatus('loading')
