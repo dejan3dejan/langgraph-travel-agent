@@ -32,6 +32,29 @@ test('posts the itinerary snapshot and copies the built link to the clipboard', 
   await waitFor(() => expect(result.current.status).toBe('copied'))
 })
 
+test('unshare deletes the last created share with its revoke token', async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ id: 'abc123', revoke_token: 'tok-xyz' }) })
+    .mockResolvedValueOnce({ ok: true, status: 204 })
+  vi.stubGlobal('fetch', fetch)
+
+  const { result } = renderHook(() => useShare())
+  await act(async () => {
+    await result.current.share({ itinerary_text: '# Trip', geo: null })
+  })
+  expect(result.current.isShared).toBe(true)
+
+  await act(async () => {
+    await result.current.unshare()
+  })
+
+  const [path, opts] = fetch.mock.calls[1]
+  expect(path).toBe('/api/share/abc123')
+  expect(opts.method).toBe('DELETE')
+  expect(JSON.parse(opts.body)).toEqual({ revoke_token: 'tok-xyz' })
+  expect(result.current.isShared).toBe(false)
+})
+
 test('surfaces an error status when the request fails instead of pretending it shared', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })))
 

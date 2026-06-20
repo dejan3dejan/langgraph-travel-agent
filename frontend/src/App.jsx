@@ -181,6 +181,8 @@ export default function App() {
               isStreaming={isStreaming}
               onShare={() => share.share({ itinerary_text: viewedItinerary?.content, geo: itineraryGeo })}
               shareStatus={share.status}
+              onUnshare={share.unshare}
+              isShared={share.isShared}
             />
           </div>
         </div>
