@@ -1,7 +1,11 @@
 """Unit tests for interviewer helper functions. Pure, no API."""
 
 from core.nodes.interviewer import (
+    _ASK_TASK,
+    _CLARIFY_EDIT_TASK,
+    _CONFIRM_TASK,
     _EXTRACTION_PROMPT,
+    _FIX_TASK,
     _FOLLOWUP_TASK,
     MAX_INTERVIEW_TURNS,
     _compute_season_suggestion,
@@ -351,6 +355,32 @@ def test_ready_signal_detects_go_ahead_phrases():
 def test_ready_signal_false_for_normal_answers():
     for text in ["I love food and history", "two adults", "Rome for 5 days", ""]:
         assert _ready_signal(text) is False
+
+
+def test_ready_signal_detects_generate_and_give_me_requests():
+    # The frustrated "just generate it" phrasings must count as ready, or the interview loops while
+    # the user begs for a plan (the bug from the Rome transcript).
+    for text in [
+        "generate a plan",
+        "GENERATE A PLAN",
+        "just generate anything",
+        "just give me itinerary",
+        "give me the itinerary",
+        "make me a plan",
+        "create an itinerary",
+        "bro will you please generate a plan",
+        "plan my trip",
+    ]:
+        assert _ready_signal(text) is True, text
+
+
+def test_pre_plan_prompts_forbid_faking_an_itinerary():
+    # The interviewer LLM must never emit a plan on a question turn; otherwise it streams a fake,
+    # geo-less itinerary that the canvas can't render and that the pipeline never produced.
+    for task in (_ASK_TASK, _CONFIRM_TASK, _CLARIFY_EDIT_TASK, _FIX_TASK):
+        low = task.lower()
+        assert "do not write" in low
+        assert "itinerary" in low
 
 
 def test_force_ready_skips_soft_slots_but_not_hard_ones():
