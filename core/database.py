@@ -96,6 +96,18 @@ class Trip(Base):
     session = relationship("ChatSession", back_populates="trips")
 
 
+class SharedItinerary(Base):
+    __tablename__ = "shared_itineraries"
+
+    # Public snapshot of a delivered plan. No user_id/session by design: a share link must not
+    # reveal who made it or their saved constraints.
+    id = Column(String, primary_key=True)  # secrets.token_urlsafe; unguessable is the access control
+    title = Column(String)
+    itinerary_text = Column(Text, nullable=False)
+    geo = Column(JSON, nullable=True)  # {hotel, days[]} map payload; null for text-only snapshots
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+
 class GeocodingCache(Base):
     __tablename__ = "geocoding_cache"
 
