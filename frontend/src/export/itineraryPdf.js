@@ -82,10 +82,47 @@ export function buildExportHtml({ title, bodyHtml, geo, mapSvg }) {
 </html>`
 }
 
+function safeFilename(title) {
+  return (title || 'itinerary').replace(/[^A-Za-z0-9 _-]+/g, '').trim().slice(0, 80) || 'itinerary'
+}
+
+// Render server-side (headless Chromium) and download the PDF directly. This is the crisp, one-click
+// path that also works on mobile, where the browser print dialog is clumsy.
+export async function downloadItineraryPdf({ title, bodyHtml, geo }) {
+  const html = buildExportHtml({ title, bodyHtml, geo, mapSvg: buildRouteMapSvg(geo) })
+  const res = await fetch('/api/export/pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ html, filename: title }),
+  })
+  if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${safeFilename(title)}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+// What the canvas calls. Prefer the server download; if the backend is unreachable or the renderer is
+// down, fall back to the always-available browser print path rather than failing silently.
+export async function exportItineraryPdf({ title, bodyHtml, geo }) {
+  try {
+    await downloadItineraryPdf({ title, bodyHtml, geo })
+  } catch (err) {
+    console.error('PDF download failed, falling back to print', err)
+    printItineraryDocument({ title, bodyHtml, geo })
+  }
+}
+
 // Render the document into a hidden iframe and hand it to the browser's print dialog (the user picks
 // "Save as PDF"). An iframe avoids popup blockers, and an <img>-free inline SVG map avoids the
 // cross-origin canvas tainting that would break an html2canvas/jsPDF pipeline.
-export function exportItineraryPdf({ title, bodyHtml, geo }) {
+export function printItineraryDocument({ title, bodyHtml, geo }) {
   const html = buildExportHtml({ title, bodyHtml, geo, mapSvg: buildRouteMapSvg(geo) })
 
   const frame = document.createElement('iframe')

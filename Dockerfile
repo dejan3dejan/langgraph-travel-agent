@@ -9,6 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Chromium for server-side PDF export. --with-deps pulls the OS libraries it needs; the browser is
+# installed system-wide so the non-root appuser created below can launch it.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install --with-deps chromium
+
 COPY . .
 
 # Run as a non-root user: create it, ensure a writable logs dir, own the app tree.
