@@ -1,6 +1,7 @@
 """Unit tests for interviewer helper functions. Pure, no API."""
 
 from core.nodes.interviewer import (
+    _EXTRACTION_PROMPT,
     _FOLLOWUP_TASK,
     MAX_INTERVIEW_TURNS,
     _compute_season_suggestion,
@@ -417,3 +418,18 @@ def test_should_regenerate_false_without_prior_plan():
 def test_should_regenerate_false_for_edit_request():
     msgs = [{"role": "model", "content": "# Trip to Rome\n## Day 1"}]
     assert _should_regenerate(msgs, "swap the Tuesday restaurant") is False
+
+
+# personalization: the extraction prompt must capture areas and the local/non-touristy vibe
+
+
+def test_extraction_prompt_captures_preferred_areas_and_local_vibe():
+    p = _EXTRACTION_PROMPT.lower()
+    assert "preferred_areas" in p
+    assert "touristy" in p or "local" in p
+
+
+def test_user_preferences_defaults_preferred_areas_empty():
+    from core.schemas import UserPreferences
+
+    assert UserPreferences(destination="Rome", duration="3 days").preferred_areas == []

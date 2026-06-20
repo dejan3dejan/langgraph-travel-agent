@@ -223,6 +223,38 @@ async def test_compiler_prompt_includes_constraints(monkeypatch):
     assert "Hard requirements" in captured["prompt"] and "never violate" in captured["prompt"]
 
 
+async def test_compiler_prompt_includes_preferred_areas(monkeypatch):
+    # Named neighborhoods must reach the writer so days anchor there instead of a landmark checklist.
+    captured = {}
+
+    class _CapturingLLM:
+        async def ainvoke(self, messages, config=None):
+            captured["prompt"] = " ".join(getattr(m, "content", "") for m in messages)
+            return _FakeResponse("# 2 days in Rome\n## Day 1\nColosseum.")
+
+        def with_structured_output(self, schema):
+            return _FakeStructured(ItineraryDayPlan(days=[ItineraryDay(day=1, title="Day", stops=["Colosseum"])]))
+
+    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role, temperature=None: _CapturingLLM())
+    state = {
+        "user_details": {
+            "destination": "Rome",
+            "duration": "2 days",
+            "needs_accommodation": False,
+            "preferred_areas": ["Trastevere", "Prati"],
+        },
+        "activity_data": [{"name": "Colosseum", "address": "Rome", "lat": 41.89, "lon": 12.49}],
+        "food_data": [],
+        "hotel_data": [],
+        "iteration_count": 0,
+    }
+
+    await compiler_node(state)
+
+    assert "Trastevere" in captured["prompt"]
+    assert "Prati" in captured["prompt"]
+
+
 async def test_compiler_avoids_prior_hard_violations(monkeypatch):
     # When the critic sent the plan back for a hard-constraint violation, the recompile prompt must
     # tell the writer to avoid the offending venue.

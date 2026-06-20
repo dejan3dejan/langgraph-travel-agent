@@ -83,6 +83,14 @@ CONSTRAINTS (fill `constraints.hard` and `constraints.soft`; leave empty if none
 INTENT: if the user is vague about what they want to do ("something", "anything", "stuff to do",
 "things to see"), leave `interests` EMPTY so we can ask. Only fill `interests` from concrete signals.
 
+PREFERRED AREAS (set `preferred_areas`):
+- Record the neighborhoods or landmarks the traveler wants to be near or base around ("near the
+  Vatican", "stay in Trastevere", "around Prati") as an ordered list. Leave empty if none mentioned.
+
+VIBE (record into `constraints.soft`):
+- "local", "not touristy", "authentic", "like a local", "hidden gems", "avoid tourist traps" ->
+  add a soft preference such as "local, non-touristy spots".
+
 For enrichment fields not mentioned, the schema defaults are fine (budget=Medium,
 num_travelers=1, age_range=adults).
 

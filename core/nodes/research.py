@@ -83,6 +83,53 @@ _RESEARCH_CONFIG = {
 }
 
 
+_LOCAL_VIBE_SIGNALS = (
+    "local",
+    "non-touristy",
+    "non touristy",
+    "not touristy",
+    "less touristy",
+    "authentic",
+    "hidden gem",
+    "off the beaten",
+    "like a local",
+    "avoid tourist",
+)
+
+
+def _wants_local(details: dict) -> bool:
+    """True when the traveler asked for a local, non-touristy feel (captured as a soft preference)."""
+    soft = (details.get("constraints") or {}).get("soft") or []
+    text = " ".join(soft).lower()
+    return any(s in text for s in _LOCAL_VIBE_SIGNALS)
+
+
+def _personalization_suffix(details: dict) -> str:
+    """Personalize-before-retrieve: fold the local vibe and named areas into the cache key so a
+    'local near Trastevere' request stops colliding with the generic bundle. Empty when neither was
+    expressed, so plain requests keep hitting the warm cache."""
+    parts = []
+    if _wants_local(details):
+        parts.append("local non-touristy spots")
+    areas = details.get("preferred_areas") or []
+    if areas:
+        parts.append("near " + ", ".join(areas))
+    return (", " + ", ".join(parts)) if parts else ""
+
+
+def _local_focus_block(details: dict) -> str:
+    """A research-prompt steer toward local spots in the named areas, added only when the traveler
+    asked for it. This is the steer that previously only fired on a regenerate."""
+    areas = details.get("preferred_areas") or []
+    if not (_wants_local(details) or areas):
+        return ""
+    near = (" Prioritize options in or near: " + ", ".join(areas) + ".") if areas else ""
+    return (
+        "\n\nLOCAL FOCUS: The traveler wants local, non-touristy places, not the usual tourist-trap "
+        "landmarks. Favor well-rated spots locals actually go to." + near
+    )
+
+
 def _build_search_query(category: str, dest: str, details: dict) -> str:
     """Build the semantic cache search query for a category."""
     age_range = details.get("age_range", "adults")
@@ -92,11 +139,12 @@ def _build_search_query(category: str, dest: str, details: dict) -> str:
     num_travelers = details.get("num_travelers", 1)
 
     if category == "restaurants":
-        return f"best restaurants in {dest} for {age_range} {budget} budget"
+        base = f"best restaurants in {dest} for {age_range} {budget} budget"
     elif category == "activities":
-        return f"best activities in {dest} for {age_range} {trip_type or 'sightseeing'} {interests}"
+        base = f"best activities in {dest} for {age_range} {trip_type or 'sightseeing'} {interests}"
     else:
-        return f"best hotels in {dest} {budget} budget for {num_travelers} travelers"
+        base = f"best hotels in {dest} {budget} budget for {num_travelers} travelers"
+    return base + _personalization_suffix(details)
 
 
 def _build_search_prompt(category: str, dest: str, details: dict) -> str:
@@ -216,7 +264,7 @@ async def _research_for_dest(category: str, dest: str, details: dict, force_refr
     # Google Search grounding is Gemini-only; OpenAI-only mode runs ungrounded.
     if USE_GEMINI:
         research_llm = research_llm.bind_tools(tools=[{"google_search": {}}])
-    search_prompt = _build_search_prompt(category, dest, details)
+    search_prompt = _build_search_prompt(category, dest, details) + _local_focus_block(details)
     if force_refresh:
         search_prompt += (
             "\n\nThe traveler has already seen the usual top picks. Prefer fresh, less obvious, "

@@ -399,6 +399,7 @@ async def compiler_node(state: AgentState) -> dict:
     age_range = user_details.get("age_range", "adults")
     trip_type = user_details.get("trip_type")
     season_suggestion = state.get("season_suggestion")
+    preferred_areas = ", ".join(user_details.get("preferred_areas") or []) or "no preference"
 
     base_label = _base_label(needs_accommodation, in_destination)
     narrative_style = _get_narrative_style(num_travelers, age_range, trip_type)
@@ -435,6 +436,7 @@ TRAVELER PROFILE (use this to personalize the narrative)
 - Duration: {user_details.get('duration')}
 - Budget: {user_details.get('budget')}
 - Interests: {user_details.get('interests')}
+- Preferred areas (base the days around these when given, not a generic landmark checklist): {preferred_areas}
 - Hard requirements (MUST satisfy, never violate): {hard_constraints or 'none'}
 - Soft preferences (honor when possible): {soft_constraints or 'none'}
 {f"- MUST AVOID (the previous draft violated these hard requirements): {prior_violations}" if prior_violations else ""}

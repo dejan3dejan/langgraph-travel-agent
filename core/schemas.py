@@ -71,6 +71,13 @@ class UserPreferences(BaseModel):
             "None if not stated yet."
         ),
     )
+    preferred_areas: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Neighborhoods or areas the traveler wants to be near or base around "
+            "(e.g. ['Trastevere', 'near the Vatican']). Empty if none mentioned."
+        ),
+    )
     focus: list[Literal["food", "activities", "hotels"]] = Field(default_factory=list)
 
 
