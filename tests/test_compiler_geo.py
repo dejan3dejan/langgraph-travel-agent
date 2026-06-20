@@ -53,7 +53,7 @@ def _stub_events(monkeypatch):
 
 def _patch_llm(monkeypatch, markdown="# Trip\n", day_plan=None):
     plan = day_plan if day_plan is not None else ItineraryDayPlan(days=[])
-    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role: _FakeLLM(markdown, plan))
+    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role, temperature=None: _FakeLLM(markdown, plan))
 
 
 async def test_compiler_emits_geo_for_a_fresh_plan(monkeypatch):
@@ -166,7 +166,7 @@ async def test_compiler_prompt_includes_constraints(monkeypatch):
         def with_structured_output(self, schema):
             return _FakeStructured(ItineraryDayPlan(days=[ItineraryDay(day=1, title="Day", stops=["Colosseum"])]))
 
-    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role: _CapturingLLM())
+    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role, temperature=None: _CapturingLLM())
     state = {
         "user_details": {
             "destination": "Rome",
@@ -201,7 +201,7 @@ async def test_compiler_avoids_prior_hard_violations(monkeypatch):
         def with_structured_output(self, schema):
             return _FakeStructured(ItineraryDayPlan(days=[ItineraryDay(day=1, title="Day", stops=["Colosseum"])]))
 
-    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role: _CapturingLLM())
+    monkeypatch.setattr(compiler_mod, "get_llm_for_role", lambda role, temperature=None: _CapturingLLM())
     state = {
         "user_details": {
             "destination": "Rome",

@@ -1,6 +1,12 @@
 """Unit tests for research helper functions — pure, no API/DB."""
 
-from core.nodes.research import _build_search_prompt, _build_search_query, _get_activity_focus, _get_destinations
+from core.nodes.research import (
+    _build_search_prompt,
+    _build_search_query,
+    _get_activity_focus,
+    _get_destinations,
+    _should_refresh,
+)
 
 
 def test_build_search_query_restaurants():
@@ -57,3 +63,20 @@ def test_search_prompt_requests_several_activities():
 def test_search_prompt_requests_several_restaurants():
     p = _build_search_prompt("restaurants", "Tokyo", {"age_range": "adults", "budget": "Medium"})
     assert "6 REAL" in p
+
+
+# regenerate refresh: rebuild food and activities live, keep the stable hotel pool cached
+
+
+def test_refresh_food_and_activities_on_regenerate():
+    assert _should_refresh("restaurants", regenerate=True) is True
+    assert _should_refresh("activities", regenerate=True) is True
+
+
+def test_keeps_hotels_cached_on_regenerate():
+    assert _should_refresh("hotels", regenerate=True) is False
+
+
+def test_no_refresh_without_regenerate():
+    assert _should_refresh("restaurants", regenerate=False) is False
+    assert _should_refresh("activities", regenerate=False) is False

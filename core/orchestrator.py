@@ -1,3 +1,4 @@
+import random
 from typing import Any
 
 from .graph import app
@@ -15,7 +16,12 @@ class TravelOrchestrator:
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
 
-        inputs = {"messages": bound_history(updated_history), "iteration_count": 0, "seeded_prefs": user_prefs}
+        inputs = {
+            "messages": bound_history(updated_history),
+            "iteration_count": 0,
+            "seeded_prefs": user_prefs,
+            "request_nonce": random.randint(0, 1_000_000),
+        }
 
         try:
             result = await self.app.ainvoke(inputs, config={"recursion_limit": 25})
@@ -52,7 +58,12 @@ class TravelOrchestrator:
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
 
-        inputs = {"messages": bound_history(updated_history), "iteration_count": 0, "seeded_prefs": user_prefs}
+        inputs = {
+            "messages": bound_history(updated_history),
+            "iteration_count": 0,
+            "seeded_prefs": user_prefs,
+            "request_nonce": random.randint(0, 1_000_000),
+        }
 
         produced_itinerary = False
         captured_user_details = {}

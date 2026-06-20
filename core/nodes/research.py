@@ -14,6 +14,12 @@ from ..state import AgentState
 logger = get_logger(__name__)
 
 
+def _should_refresh(category: str, regenerate: bool) -> bool:
+    """On a regenerate, rebuild the food and activity pools live (they drive day-to-day variety) but
+    keep the stable hotel pool cached, since only one hotel is picked anyway."""
+    return regenerate and category in ("restaurants", "activities")
+
+
 def _get_destinations(details: dict) -> list[str]:
     """Return list of destinations to research (supports multi-destination)."""
     dests = details.get("destinations") or []
@@ -181,34 +187,41 @@ def _build_search_prompt(category: str, dest: str, details: dict) -> str:
     """
 
 
-async def _research_for_dest(category: str, dest: str, details: dict) -> list:
-    """Generic research function — works for restaurants, activities, and hotels."""
+async def _research_for_dest(category: str, dest: str, details: dict, force_refresh: bool = False) -> list:
+    """Generic research function — works for restaurants, activities, and hotels. On force_refresh
+    (a regenerate) it skips the cache and searches live at a higher temperature for a fresh pool."""
     config = _RESEARCH_CONFIG[category]
     schema_class = config["schema_class"]
     list_class = config["list_class"]
 
     search_query = _build_search_query(category, dest, details)
 
-    cache_hit = await semantic_search(
-        query=search_query,
-        category=category,
-        destination=dest,
-        similarity_threshold=config["similarity_threshold"],
-        max_age_days=config["max_age_days"],
-    )
-    use_cache, reason = await should_use_cache(cache_hit, category)
+    if not force_refresh:
+        cache_hit = await semantic_search(
+            query=search_query,
+            category=category,
+            destination=dest,
+            similarity_threshold=config["similarity_threshold"],
+            max_age_days=config["max_age_days"],
+        )
+        use_cache, reason = await should_use_cache(cache_hit, category)
 
-    if use_cache and cache_hit:
-        logger.info(f"[{dest}] Cache hit for {category} ({reason})")
-        return [schema_class(**item) for item in cache_hit["results"]]
+        if use_cache and cache_hit:
+            logger.info(f"[{dest}] Cache hit for {category} ({reason})")
+            return [schema_class(**item) for item in cache_hit["results"]]
 
-    logger.info(f"[{dest}] Cache miss for {category} — searching via Gemini...")
+    logger.info(f"[{dest}] {'Refreshing' if force_refresh else 'Cache miss for'} {category}, searching via Gemini...")
 
-    research_llm = get_llm_for_role("research")
+    research_llm = get_llm_for_role("research", temperature=0.8 if force_refresh else None)
     # Google Search grounding is Gemini-only; OpenAI-only mode runs ungrounded.
     if USE_GEMINI:
         research_llm = research_llm.bind_tools(tools=[{"google_search": {}}])
     search_prompt = _build_search_prompt(category, dest, details)
+    if force_refresh:
+        search_prompt += (
+            "\n\nThe traveler has already seen the usual top picks. Prefer fresh, less obvious, "
+            "well-rated options they likely have not seen before."
+        )
 
     grounded_response = await research_llm.ainvoke([HumanMessage(content=search_prompt)])
     grounded_text = getattr(grounded_response, "content", str(grounded_response))
@@ -242,11 +255,12 @@ async def _research_node(category: str, state: AgentState) -> dict[str, Any]:
     t0 = time.time()
     details = state.get("user_details", {})
     destinations = _get_destinations(details)
+    force_refresh = _should_refresh(category, state.get("regenerate", False))
 
     all_data = []
     for dest in destinations:
         try:
-            data = await _research_for_dest(category, dest, details)
+            data = await _research_for_dest(category, dest, details, force_refresh=force_refresh)
             all_data.extend(data)
         except Exception as e:
             logger.error(f"{category.title()} Agent Error [{dest}]: {e}")

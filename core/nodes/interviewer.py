@@ -420,6 +420,12 @@ def _wants_fresh_plan(text: str) -> bool:
     return any(p in t for p in _FRESH_PLAN_SIGNALS)
 
 
+def _should_regenerate(messages: list[dict], latest_user: str) -> bool:
+    """A regenerate is a post-plan request to rebuild from scratch: a plan already exists and the user
+    asked for a fresh one. The pipeline then diversifies the result instead of reproducing it."""
+    return _plan_in_history(messages) and _wants_fresh_plan(latest_user)
+
+
 def _next_question(user_details: dict, user_turns: int, force_ready: bool = False) -> str | None:
     """The next slot to ask for, or None when there's enough to plan. Pure; this is the anti-loop
     gate, decided in code, not by the LLM.
@@ -598,6 +604,7 @@ async def interviewer_node(state: AgentState) -> dict:
 
     # 2. Deterministic decision (pure helper). This is what prevents looping: one slot per turn. A
     #    "regenerate" request plans immediately too (skip the soft slots and the confirm beat).
+    regenerating = _should_regenerate(messages, latest_user)
     force_ready = _ready_signal(latest_user) or _wants_fresh_plan(latest_user)
     question = _next_question(user_details, user_turns, force_ready=force_ready)
     if question is not None:
@@ -642,6 +649,8 @@ async def interviewer_node(state: AgentState) -> dict:
         "messages": [{"role": "model", "content": "Great! I'm researching your trip now..."}],
         "user_details": user_details,
         "season_suggestion": season_suggestion,
+        "regenerate": regenerating,
+        "base_itinerary": _latest_itinerary(messages) if regenerating else None,
         "next_node": "research",
         "debug_logs": [log],
     }

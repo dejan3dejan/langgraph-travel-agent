@@ -23,6 +23,28 @@ def _slim_place(d: dict) -> dict:
     return {k: v for k, v in d.items() if k not in _INTERNAL_KEYS and v is not None}
 
 
+def rotate_for_variety(items: list, seed: int) -> list:
+    """Rotate a candidate list by a per-request seed so a regenerate features the same pool in a
+    different order, without dropping or adding any place."""
+    if not items:
+        return items
+    k = seed % len(items)
+    return items[k:] + items[:k]
+
+
+def _build_regenerate_directive(base_itinerary: str) -> str:
+    """Tell the writer to produce a plan that differs from the one the traveler already has, with the
+    prior plan included only as the thing to avoid repeating."""
+    return f"""REGENERATION REQUEST: the traveler wants a genuinely different plan from the one below.
+Feature different restaurants and activities where the data allows, give the days different themes and a
+different order, and vary the daily structure. Keep the same traveler profile and satisfy every hard
+requirement. Do not reproduce the previous arrangement.
+
+PREVIOUS PLAN (produce something different from this):
+{base_itinerary}
+"""
+
+
 # Narrative helpers
 
 
@@ -289,6 +311,12 @@ async def compiler_node(state: AgentState) -> dict:
     activity_dicts = [_slim_place(a.model_dump() if hasattr(a, "model_dump") else a) for a in activity_data]
     hotel_dicts = [_slim_place(h.model_dump() if hasattr(h, "model_dump") else h) for h in hotel_data]
 
+    # A regenerate rotates the pools by the per-request seed so different places get featured first.
+    if state.get("regenerate"):
+        seed = state.get("request_nonce") or 0
+        food_dicts = rotate_for_variety(food_dicts, seed)
+        activity_dicts = rotate_for_variety(activity_dicts, seed + 1)
+
     in_destination = _in_destination(user_details)
     needs_accommodation = user_details.get("needs_accommodation", True) is not False
 
@@ -361,7 +389,7 @@ async def compiler_node(state: AgentState) -> dict:
     else:
         origin_line = "- Departing from: (not specified)"
 
-    chat_llm = get_llm_for_role("compiler")
+    chat_llm = get_llm_for_role("compiler", temperature=0.9 if state.get("regenerate") else None)
 
     prompt = f"""
 You are writing a practical travel itinerary for a trip to {user_details.get('destination')}.
@@ -447,6 +475,10 @@ OUTPUT FORMAT (Markdown)
 ═══════════════════════════════════════════════════════════════
 Output ONLY the raw Markdown text. Do NOT wrap the output in ```markdown code blocks. No preamble.
 """
+
+    base_itinerary = state.get("base_itinerary")
+    if state.get("regenerate") and base_itinerary:
+        prompt = _build_regenerate_directive(base_itinerary) + "\n" + prompt
 
     response = await chat_llm.ainvoke(
         [

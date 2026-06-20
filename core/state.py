@@ -32,4 +32,9 @@ class AgentState(TypedDict):
     base_itinerary: str | None
     is_edit: bool
 
+    # Regenerate flow: a fresh-plan request after a plan already exists re-runs the full pipeline
+    # with the prior plan as an avoid-this reference and a per-request seed, to diversify the result.
+    regenerate: bool
+    request_nonce: int | None
+
     debug_logs: Annotated[list[dict[str, Any]], operator.add]

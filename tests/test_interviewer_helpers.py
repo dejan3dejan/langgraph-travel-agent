@@ -16,6 +16,7 @@ from core.nodes.interviewer import (
     _question_text,
     _ready_signal,
     _route_edit,
+    _should_regenerate,
     _wants_fresh_plan,
 )
 
@@ -394,3 +395,25 @@ def test_wants_fresh_plan_detects_regenerate():
 def test_wants_fresh_plan_false_for_edits_and_questions():
     for text in ["swap the day 1 restaurant", "how accurate are the prices?", "make day 2 lighter", ""]:
         assert _wants_fresh_plan(text) is False
+
+
+# regenerate routing: a fresh-plan request after a plan exists rebuilds, it does not edit in place
+
+
+def test_should_regenerate_true_when_plan_exists_and_fresh_request():
+    msgs = [
+        {"role": "user", "content": "plan rome"},
+        {"role": "model", "content": "# 3 days Trip to Rome\n## Day 1"},
+        {"role": "user", "content": "regenerate this plan from scratch"},
+    ]
+    assert _should_regenerate(msgs, "regenerate this plan from scratch") is True
+
+
+def test_should_regenerate_false_without_prior_plan():
+    msgs = [{"role": "user", "content": "regenerate this plan from scratch"}]
+    assert _should_regenerate(msgs, "regenerate this plan from scratch") is False
+
+
+def test_should_regenerate_false_for_edit_request():
+    msgs = [{"role": "model", "content": "# Trip to Rome\n## Day 1"}]
+    assert _should_regenerate(msgs, "swap the Tuesday restaurant") is False

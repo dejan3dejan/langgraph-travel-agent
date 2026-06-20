@@ -7,8 +7,10 @@ from core.nodes.compiler import (
     _base_label,
     _build_day_assignment_prompt,
     _build_edit_prompt,
+    _build_regenerate_directive,
     _origin_known,
     _transport_section,
+    rotate_for_variety,
 )
 
 # proximity anchor
@@ -132,3 +134,34 @@ def test_build_day_assignment_prompt_constrains_to_provided_names():
     # Stops must come from the known list so the caller can match them back to geocoded coordinates.
     prompt = _build_day_assignment_prompt("# Trip", ["Louvre"]).lower()
     assert "only" in prompt
+
+
+# regenerate diversification (rotate the pool, demand a different plan)
+
+
+def test_rotate_preserves_membership():
+    items = [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]
+    out = rotate_for_variety(items, seed=3)
+    assert sorted(p["name"] for p in out) == ["a", "b", "c", "d"]
+
+
+def test_rotate_is_deterministic_for_same_seed():
+    items = list(range(5))
+    assert rotate_for_variety(items, 2) == rotate_for_variety(items, 2)
+
+
+def test_rotate_varies_with_seed():
+    items = [1, 2, 3, 4]
+    assert rotate_for_variety(items, 1) != rotate_for_variety(items, 2)
+
+
+def test_rotate_empty_and_singleton():
+    assert rotate_for_variety([], 5) == []
+    assert rotate_for_variety([9], 5) == [9]
+
+
+def test_regenerate_directive_demands_difference_and_embeds_prior():
+    prior = "# 3 days Trip to Rome\n## Day 1: Colosseum"
+    out = _build_regenerate_directive(prior)
+    assert "different" in out.lower()
+    assert prior in out
