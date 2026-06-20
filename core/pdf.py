@@ -39,31 +39,35 @@ def sanitize_pdf_filename(name: str | None, default: str = "itinerary") -> str:
     return (base or default)[:80]
 
 
-async def _render(html: str) -> bytes:
+def _render_sync(html: str) -> bytes:
+    # Playwright's sync API drives the browser over its own thread, so it doesn't need the calling
+    # event loop to support subprocesses. The async API does, which uvicorn's loop on Windows does
+    # not (it raises a bare NotImplementedError on launch). render_pdf runs this in a worker thread.
     try:
-        from playwright.async_api import async_playwright
+        from playwright.sync_api import sync_playwright
     except ImportError as e:
         raise PdfRendererUnavailable("Playwright is not installed") from e
 
-    async def _block_external(route):
+    def _block_external(route):
         # The document is self-contained; any http(s) fetch is an injected resource, so refuse it.
         # data:, blob:, and about:blank carry the inline content and must pass through.
         if route.request.url.startswith(("http://", "https://")):
-            await route.abort()
+            route.abort()
         else:
-            await route.continue_()
+            route.continue_()
 
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(args=["--no-sandbox"])
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=["--no-sandbox"])
             try:
-                context = await browser.new_context(java_script_enabled=False)
-                page = await context.new_page()
-                await page.route("**/*", _block_external)
-                await page.set_content(html, wait_until="load")
-                return await page.pdf(format="A4", print_background=True, prefer_css_page_size=True)
+                context = browser.new_context(java_script_enabled=False)
+                page = context.new_page()
+                page.set_default_timeout(_RENDER_TIMEOUT_S * 1000)
+                page.route("**/*", _block_external)
+                page.set_content(html, wait_until="load")
+                return page.pdf(format="A4", print_background=True, prefer_css_page_size=True)
             finally:
-                await browser.close()
+                browser.close()
     except PdfRendererUnavailable:
         raise
     except Exception as e:
@@ -74,11 +78,12 @@ async def _render(html: str) -> bytes:
 
 
 async def render_pdf(html: str) -> bytes:
-    """Render an HTML document to PDF bytes. Bounded concurrency and a hard timeout keep a burst of
-    exports from starving the event loop or piling up browser processes."""
+    """Render an HTML document to PDF bytes. The blocking render runs in a worker thread so it never
+    stalls the event loop; bounded concurrency and a hard timeout keep a burst of exports from piling
+    up browser processes."""
     async with _semaphore:
         try:
-            return await asyncio.wait_for(_render(html), timeout=_RENDER_TIMEOUT_S)
+            return await asyncio.wait_for(asyncio.to_thread(_render_sync, html), timeout=_RENDER_TIMEOUT_S)
         except TimeoutError as e:
             logger.error("PDF render timed out after %ss", _RENDER_TIMEOUT_S)
             raise RuntimeError("PDF render timed out") from e
