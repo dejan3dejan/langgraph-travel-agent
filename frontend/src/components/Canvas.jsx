@@ -33,6 +33,16 @@ function CheckIcon() {
   )
 }
 
+function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  )
+}
+
 function ShareIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -100,6 +110,15 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
     window.getSelection()?.removeAllRanges()
   }
 
+  // Lazy-load the export pipeline on click so it stays off the first-paint bundle. The itinerary is
+  // already rendered to HTML by react-markdown (no raw HTML pass), so reuse that DOM for the PDF body.
+  const exportPdf = async () => {
+    if (!itinerary?.content) return
+    const bodyHtml = detailsRef.current?.querySelector('.markdown-body')?.innerHTML || ''
+    const { exportItineraryPdf } = await import('../export/itineraryPdf')
+    exportItineraryPdf({ title, bodyHtml, geo })
+  }
+
   return (
     <div className="canvas">
       <header className="canvas__header">
@@ -125,6 +144,17 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
             title="Copy itinerary"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
+          </button>
+        )}
+        {itinerary && (
+          <button
+            type="button"
+            className="canvas__action"
+            onClick={exportPdf}
+            aria-label="Export PDF"
+            title="Download a printable PDF"
+          >
+            <DownloadIcon />
           </button>
         )}
         {itinerary && onShare && (

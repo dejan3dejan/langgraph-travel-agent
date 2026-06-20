@@ -53,6 +53,20 @@ test('regenerate shows an in-progress state and is disabled while streaming', ()
   expect(onRegenerate).not.toHaveBeenCalled()
 })
 
+vi.mock('../export/itineraryPdf', () => ({ exportItineraryPdf: vi.fn() }))
+import { exportItineraryPdf } from '../export/itineraryPdf'
+
+test('export action hands the title, rendered body, and geo to the pdf pipeline', async () => {
+  render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1\nWalk the forum' }} geo={GEO} />)
+  fireEvent.click(screen.getByRole('button', { name: /export pdf/i }))
+
+  await waitFor(() => expect(exportItineraryPdf).toHaveBeenCalledTimes(1))
+  const arg = exportItineraryPdf.mock.calls[0][0]
+  expect(arg.title).toBe('Trip to Rome')
+  expect(arg.geo).toBe(GEO)
+  expect(arg.bodyHtml).toContain('Walk the forum')
+})
+
 test('shows a share action only when onShare is provided', () => {
   const { rerender } = render(<Canvas itinerary={{ content: '# Trip to Rome' }} geo={GEO} />)
   expect(screen.queryByRole('button', { name: /share/i })).toBeNull()
