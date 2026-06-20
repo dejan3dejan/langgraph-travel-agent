@@ -92,6 +92,57 @@ test('shows a stop-sharing action only once a link is live, and it calls onUnsha
   expect(onUnshare).toHaveBeenCalledTimes(1)
 })
 
+function stubSelection(text, anchorNode, rangeRect = { top: 0, bottom: 0, left: 0, right: 0 }) {
+  const sel = {
+    toString: () => text,
+    rangeCount: text ? 1 : 0,
+    anchorNode,
+    getRangeAt: () => ({ getBoundingClientRect: () => rangeRect }),
+    removeAllRanges: vi.fn(),
+  }
+  vi.spyOn(window, 'getSelection').mockReturnValue(sel)
+  return sel
+}
+
+afterEach(() => vi.restoreAllMocks())
+
+test('selecting itinerary text reveals an add-to-chat button that quotes the selection', () => {
+  const onAddToChat = vi.fn()
+  render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1' }} geo={GEO} onAddToChat={onAddToChat} />)
+  const details = document.querySelector('.canvas__details')
+  stubSelection('Day 1 in Rome', details)
+
+  fireEvent.mouseUp(details)
+  fireEvent.click(screen.getByRole('button', { name: /add to chat/i }))
+
+  expect(onAddToChat).toHaveBeenCalledWith('Day 1 in Rome')
+  expect(screen.queryByRole('button', { name: /add to chat/i })).toBeNull()
+})
+
+test('floats the add-to-chat button just under the selection, relative to the scrolled body', () => {
+  render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1' }} geo={GEO} onAddToChat={() => {}} />)
+  const details = document.querySelector('.canvas__details')
+  vi.spyOn(details, 'getBoundingClientRect').mockReturnValue({ top: 80, left: 40 })
+  Object.defineProperty(details, 'scrollTop', { value: 50, configurable: true })
+  stubSelection('Day 1 in Rome', details, { top: 200, bottom: 220, left: 120, right: 300 })
+
+  fireEvent.mouseUp(details)
+
+  const btn = screen.getByRole('button', { name: /add to chat/i })
+  // bottom - container.top + scrollTop, and left - container.left
+  expect(btn.style.top).toBe('190px')
+  expect(btn.style.left).toBe('80px')
+})
+
+test('an empty selection does not show the add-to-chat button', () => {
+  render(<Canvas itinerary={{ content: '# Trip to Rome\n## Day 1' }} geo={GEO} onAddToChat={() => {}} />)
+  const details = document.querySelector('.canvas__details')
+  stubSelection('', details)
+
+  fireEvent.mouseUp(details)
+  expect(screen.queryByRole('button', { name: /add to chat/i })).toBeNull()
+})
+
 test('passes the edit summary through to the itinerary', () => {
   render(
     <Canvas

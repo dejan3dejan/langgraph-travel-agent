@@ -25,6 +25,8 @@ export default function App() {
   const [mobileView, setMobileView] = useState('chat')
   // Which itinerary the canvas is showing; null follows the latest, an index pins an older version.
   const [viewedItineraryIndex, setViewedItineraryIndex] = useState(null)
+  // A chunk of the itinerary the user picked to quote into their next message; null when none.
+  const [pendingQuote, setPendingQuote] = useState(null)
   // Nudge an anonymous user to sign up once per conversation, not on every regenerate, and never
   // after they dismiss it. Resets when a new chat clears the messages.
   const signupNudgedRef = useRef(false)
@@ -54,9 +56,13 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, planningStage])
 
-  // A new chat (or sign-out) clears the messages, so let the next plan nudge signup again.
+  // A new chat (or sign-out) clears the messages, so let the next plan nudge signup again and drop
+  // any selection staged for quoting, which belongs to the conversation that just ended.
   useEffect(() => {
-    if (messages.length === 0) signupNudgedRef.current = false
+    if (messages.length === 0) {
+      signupNudgedRef.current = false
+      setPendingQuote(null)
+    }
   }, [messages.length])
 
   useEffect(() => {
@@ -141,7 +147,15 @@ export default function App() {
     </div>
   )
 
-  const inputBar = <InputBar onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+  const inputBar = (
+    <InputBar
+      onSend={sendMessage}
+      isStreaming={isStreaming}
+      onStop={stopStreaming}
+      quote={pendingQuote}
+      onClearQuote={() => setPendingQuote(null)}
+    />
+  )
 
   return (
     <div className={`app ${split ? 'app--split' : ''}`}>
@@ -183,6 +197,7 @@ export default function App() {
               shareStatus={share.status}
               onUnshare={share.unshare}
               isShared={share.isShared}
+              onAddToChat={(text) => { setPendingQuote(text); setMobileView('chat') }}
             />
           </div>
         </div>

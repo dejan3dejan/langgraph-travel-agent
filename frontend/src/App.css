@@ -397,6 +397,61 @@
   padding: 16px 6px 24px;
 }
 
+/* A recessed chip above the input showing the itinerary section the next message will quote. */
+.input-quote {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  border-left: 3px solid var(--accent);
+  background: var(--bg);
+  box-shadow: var(--shadow-recessed);
+}
+
+.input-quote__label {
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.input-quote__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.input-quote__remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: color 0.15s, box-shadow 0.15s;
+}
+
+.input-quote__remove:hover { color: var(--accent); }
+.input-quote__remove:active { box-shadow: var(--shadow-pressed); }
+
 .input-row {
   display: flex;
   gap: 12px;

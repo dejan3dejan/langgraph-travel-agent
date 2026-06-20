@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useState, useRef } from 'react'
 import Message from './Message'
 import DayCards from './DayCards'
 import './Canvas.css'
@@ -59,16 +59,45 @@ const SHARE_LABEL = { sharing: 'Sharing', copied: 'Link copied', error: 'Share f
 
 // The persistent artifact pane. The title and map stay pinned at the top while the itinerary text
 // and day cards scroll underneath, so the map never scrolls out of reach.
-export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onShare, shareStatus = 'idle', onUnshare, isShared = false }) {
+export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onShare, shareStatus = 'idle', onUnshare, isShared = false, onAddToChat }) {
   const heading = itinerary?.content?.match(/^#\s+(.+)$/m)?.[1]
   const title = heading || 'Your itinerary'
   const [copied, setCopied] = useState(false)
+  const detailsRef = useRef(null)
+  // The current text selection inside the itinerary body, with where to float its action button.
+  const [selection, setSelection] = useState(null)
 
   const copy = async () => {
     if (!itinerary?.content) return
     await navigator.clipboard.writeText(itinerary.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Surface an "add to chat" button when the user highlights a chunk of the itinerary, so the next
+  // message can quote that section. Only act on selections that live inside the scrolling body.
+  const handleSelect = () => {
+    if (!onAddToChat) return
+    const sel = window.getSelection()
+    const text = sel?.toString().trim()
+    const container = detailsRef.current
+    if (!text || !sel.rangeCount || !container || !container.contains(sel.anchorNode)) {
+      setSelection(null)
+      return
+    }
+    const rangeRect = sel.getRangeAt(0).getBoundingClientRect()
+    const box = container.getBoundingClientRect()
+    setSelection({
+      text,
+      top: rangeRect.bottom - box.top + container.scrollTop,
+      left: rangeRect.left - box.left,
+    })
+  }
+
+  const addToChat = () => {
+    if (selection) onAddToChat(selection.text)
+    setSelection(null)
+    window.getSelection()?.removeAllRanges()
   }
 
   return (
@@ -129,7 +158,13 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
         </Suspense>
       </div>
 
-      <div className="canvas__details">
+      <div
+        className="canvas__details"
+        ref={detailsRef}
+        onMouseUp={handleSelect}
+        onKeyUp={handleSelect}
+        onScroll={() => selection && setSelection(null)}
+      >
         {itinerary && (
           <Message
             role="ai"
@@ -140,6 +175,16 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
           />
         )}
         {geo && <DayCards geo={geo} />}
+        {selection && (
+          <button
+            type="button"
+            className="canvas__quote-btn"
+            style={{ top: selection.top, left: selection.left }}
+            onClick={addToChat}
+          >
+            Add to chat
+          </button>
+        )}
       </div>
     </div>
   )

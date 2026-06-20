@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
+import { buildQuotedMessage } from '../quote'
 
-export default function InputBar({ onSend, isStreaming, onStop }) {
+export default function InputBar({ onSend, isStreaming, onStop, quote, onClearQuote }) {
   const [text, setText] = useState('')
   const textareaRef = useRef(null)
 
@@ -14,8 +15,9 @@ export default function InputBar({ onSend, isStreaming, onStop }) {
       return
     }
     if (!text.trim()) return
-    onSend(text.trim())
+    onSend(buildQuotedMessage(quote, text.trim()))
     setText('')
+    onClearQuote?.()
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
@@ -35,6 +37,20 @@ export default function InputBar({ onSend, isStreaming, onStop }) {
 
   return (
     <div className="input-bar">
+      {quote && (
+        <div className="input-quote">
+          <span className="input-quote__label">Editing</span>
+          <span className="input-quote__text">{quote}</span>
+          <button
+            type="button"
+            className="input-quote__remove"
+            onClick={onClearQuote}
+            aria-label="Remove quoted selection"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div className="input-row">
         <textarea
           ref={textareaRef}

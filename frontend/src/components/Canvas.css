@@ -74,11 +74,33 @@
 .canvas__map .map-fallback { margin: 0; }
 
 .canvas__details {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 16px 20px 20px;
 }
+
+/* Floats just under a text selection so the user can pull that section into their next message. */
+.canvas__quote-btn {
+  position: absolute;
+  z-index: 5;
+  transform: translateY(8px);
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--r-sm);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-fg);
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: var(--shadow-floating);
+  transition: filter 0.15s, transform 0.15s var(--ease-spring), box-shadow 0.15s;
+}
+
+.canvas__quote-btn:hover { filter: brightness(1.08); }
+.canvas__quote-btn:active { transform: translateY(9px); box-shadow: var(--shadow-pressed); }
 
 /* The itinerary is the panel body here, not a chat bubble. The header already carries the trip
    title, so drop the avatar, the bubble shadow, and the duplicate top heading. */
