@@ -27,9 +27,40 @@ export function useChat({ onItineraryDelivered } = {}) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [itineraryGeo, setItineraryGeo] = useState(null)
   const [planningStage, setPlanningStage] = useState(null)
+  // Compare mode: the two streamed itinerary variants and which one the canvas is showing. Null when
+  // not comparing. Mirrored in a ref so keepVariant reads the latest without a stale closure.
+  const [variants, setVariants] = useState(null)
+  const [activeVariant, setActiveVariant] = useState('A')
+  const variantsRef = useRef(null)
+  const comparingRef = useRef(false)
+  const variantBufRef = useRef({ A: '', B: '' })
   const abortRef = useRef(null)
   const sessionIdRef = useRef(localStorage.getItem('atlas_session_id') || null)
   const lastTextRef = useRef('')
+
+  // Compare-state writers keep the ref and the rendered state in lockstep.
+  const resetCompare = () => {
+    comparingRef.current = false
+    variantsRef.current = null
+    variantBufRef.current = { A: '', B: '' }
+    setVariants(null)
+    setActiveVariant('A')
+  }
+
+  const enterCompare = (variant) => {
+    comparingRef.current = true
+    variantBufRef.current = { A: '', B: '' }
+    variantsRef.current = { A: { content: '', geo: null }, B: { content: '', geo: null } }
+    setVariants(variantsRef.current)
+    setActiveVariant(variant)
+  }
+
+  const writeVariant = (variant, patch) => {
+    const cur = variantsRef.current || { A: { content: '', geo: null }, B: { content: '', geo: null } }
+    const next = { ...cur, [variant]: { ...cur[variant], ...patch } }
+    variantsRef.current = next
+    setVariants(next)
+  }
 
   // A persisted session id with an empty visible chat is a stale carry-over from a previous page
   // load. Reusing it would make a brand-new planning request land as an edit of the old plan, so
@@ -52,6 +83,7 @@ export function useChat({ onItineraryDelivered } = {}) {
       setMessages(prev => [...prev, { role: 'user', content: text }])
     }
     setStatuses([])
+    resetCompare()
     setIsStreaming(true)
 
     let aiContent = ''
@@ -74,6 +106,7 @@ export function useChat({ onItineraryDelivered } = {}) {
         body: JSON.stringify({
           message: text,
           session_id: sessionIdRef.current,
+          compare: !!opts.compare,
         }),
         signal: abortRef.current.signal,
       })
@@ -132,10 +165,23 @@ export function useChat({ onItineraryDelivered } = {}) {
               // Themed loader caption for this stage, one line picked at random from its pool.
               const stage = stageFor(event.node)
               setPlanningStage({ variant: stage.variant, line: stage.lines[Math.floor(Math.random() * stage.lines.length)] })
+              // Compare mode engages only once a variant is actually being compiled (an interview
+              // question never reaches the compiler, so it stays a normal reply). Variant B's compiler
+              // stage just moves the canvas focus to B.
+              if (event.variant && event.node === 'compiler') {
+                if (!comparingRef.current) enterCompare(event.variant)
+                else setActiveVariant(event.variant)
+              }
               break
             }
 
             case 'token': {
+              if (comparingRef.current && event.variant) {
+                const v = event.variant
+                variantBufRef.current[v] += event.content
+                writeVariant(v, { content: variantBufRef.current[v] })
+                break
+              }
               aiContent += event.content
               setMessages(prev => {
                 const last = prev[prev.length - 1]
@@ -148,23 +194,51 @@ export function useChat({ onItineraryDelivered } = {}) {
             }
 
             case 'reset': {
+              if (comparingRef.current && event.variant) {
+                const v = event.variant
+                variantBufRef.current[v] = ''
+                writeVariant(v, { content: '' })
+                break
+              }
               aiContent = ''
               setMessages(prev => prev.filter(m => m.role !== 'ai-stream'))
               break
             }
 
             case 'end': {
+              currentStatuses = currentStatuses.map(s => ({ ...s, state: 'done' }))
+              setStatuses([...currentStatuses])
+
+              if (comparingRef.current && event.variant) {
+                const v = event.variant
+                writeVariant(v, { geo: event.geo ?? null })
+                if (event.is_final && v === 'B') {
+                  // Both variants are ready; keep the compare view and commit nothing until the user
+                  // chooses. Default the selection back to A, the primary recommendation.
+                  setActiveVariant('A')
+                } else if (event.is_final) {
+                  // Variant A finalized with no B following (an edit, or a stray compiled reply): fall
+                  // back to the single-itinerary flow using A's text.
+                  isItinerary = event.is_itinerary || false
+                  isEdit = event.is_edit || false
+                  editSummary = event.edit_summary || ''
+                  if (isItinerary && !isEdit) setItineraryGeo(event.geo || { hotel: null, days: [] })
+                  aiContent = variantBufRef.current.A
+                  resetCompare()
+                }
+                break
+              }
+
               isItinerary = event.is_itinerary || false
               isEdit = event.is_edit || false
               editSummary = event.edit_summary || ''
               // A fresh plan refreshes the map; an edit re-geocodes nothing, so keep the prior map.
               if (isItinerary && !isEdit) setItineraryGeo(event.geo || { hotel: null, days: [] })
-              currentStatuses = currentStatuses.map(s => ({ ...s, state: 'done' }))
-              setStatuses([...currentStatuses])
               break
             }
 
             case 'error': {
+              if (comparingRef.current) resetCompare()
               setMessages(prev => [
                 ...prev.filter(m => m.role !== 'ai-stream'),
                 { role: 'ai', content: event.content || 'Something went wrong.', isError: true },
@@ -185,6 +259,8 @@ export function useChat({ onItineraryDelivered } = {}) {
 
       if (isItinerary) onItineraryRef.current?.({ isEdit })
     } catch (err) {
+      // A stopped or failed compare leaves no half-built variants behind.
+      if (comparingRef.current) resetCompare()
       if (err.name === 'AbortError') {
         // Stopped mid-stream: keep whatever was generated as a final message so there is no
         // frozen ai-stream bubble with a blinking cursor.
@@ -217,6 +293,42 @@ export function useChat({ onItineraryDelivered } = {}) {
     setStatuses([])
     setItineraryGeo(null)
     setPlanningStage(null)
+    resetCompare()
+  }, [])
+
+  // Compare mode: pick which variant the canvas shows.
+  const selectVariant = useCallback((variant) => setActiveVariant(variant), [])
+
+  // Keep the chosen variant: tell the backend to commit it, then collapse the compare view into the
+  // normal single-itinerary flow (the kept plan becomes an ordinary itinerary message + map).
+  const keepVariant = useCallback(async (variant) => {
+    const chosen = variantsRef.current?.[variant]
+    if (!chosen) return
+
+    const headers = { 'Content-Type': 'application/json' }
+    const token = localStorage.getItem('atlas_token')
+    if (token) headers.Authorization = `Bearer ${token}`
+
+    let res
+    try {
+      res = await fetch(apiUrl('/api/chat/keep-variant'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ session_id: sessionIdRef.current, variant }),
+      })
+    } catch {
+      res = null
+    }
+    if (!res || !res.ok) {
+      if (res?.status === 401) window.dispatchEvent(new Event('atlas-unauthorized'))
+      setMessages(prev => [...prev, { role: 'ai', content: 'Could not save your choice. Please try again.', isError: true }])
+      return
+    }
+
+    setMessages(prev => [...prev, { role: 'ai', content: chosen.content, isItinerary: true }])
+    setItineraryGeo(chosen.geo || { hotel: null, days: [] })
+    resetCompare()
+    onItineraryRef.current?.({ isEdit: false })
   }, [])
 
   // Render a saved trip's itinerary as a read-only view (used by the trips sidebar).
@@ -247,5 +359,5 @@ export function useChat({ onItineraryDelivered } = {}) {
     return sendMessage('Regenerate this plan from scratch with fresh ideas.')
   }, [sendMessage])
 
-  return { messages, statuses, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate }
+  return { messages, statuses, isStreaming, itineraryGeo, planningStage, variants, activeVariant, selectVariant, keepVariant, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate }
 }

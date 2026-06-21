@@ -403,6 +403,114 @@ function hangingFetch(line) {
   }))
 }
 
+const GEO_A = {
+  hotel: null,
+  days: [{ day: 1, zone: 'near', label: 'Walkable', places: [{ name: 'A1', lat: 1, lon: 2, kind: 'activity' }] }],
+}
+const GEO_B = {
+  hotel: null,
+  days: [{ day: 1, zone: 'far', label: 'Scenic', places: [{ name: 'B1', lat: 3, lon: 4, kind: 'activity' }] }],
+}
+
+// A compare stream: variant A (compiler status, tokens, end is_final=false) then variant B.
+function compareStream() {
+  return streamingFetch([
+    'data: {"type":"session","session_id":"sess-cmp"}\n\n',
+    'data: {"type":"status","node":"compiler","content":"compiling","variant":"A"}\n\n',
+    'data: {"type":"token","content":"# Trip to Rome (A)","variant":"A"}\n\n',
+    `data: ${JSON.stringify({ type: 'end', is_itinerary: true, is_final: false, geo: GEO_A, variant: 'A' })}\n\n`,
+    'data: {"type":"status","node":"compiler","content":"compiling","variant":"B"}\n\n',
+    'data: {"type":"token","content":"# Trip to Rome (B)","variant":"B"}\n\n',
+    `data: ${JSON.stringify({ type: 'end', is_itinerary: true, is_final: true, geo: GEO_B, variant: 'B' })}\n\n`,
+  ])
+}
+
+test('compare: two variants stream into the canvas without committing an itinerary message', async () => {
+  vi.stubGlobal('fetch', compareStream())
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome', { compare: true })
+  })
+  await waitFor(() => expect(result.current.variants).not.toBeNull())
+  expect(result.current.variants.A.content).toContain('(A)')
+  expect(result.current.variants.B.content).toContain('(B)')
+  expect(result.current.variants.A.geo).toEqual(GEO_A)
+  expect(result.current.variants.B.geo).toEqual(GEO_B)
+  // nothing is committed to the chat or the map until the user keeps one
+  expect(result.current.messages.some((m) => m.isItinerary)).toBe(false)
+  expect(result.current.itineraryGeo).toBeNull()
+  expect(result.current.isStreaming).toBe(false)
+})
+
+test('compare: sendMessage asks the backend for compare mode', async () => {
+  const fetchMock = compareStream()
+  vi.stubGlobal('fetch', fetchMock)
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome', { compare: true })
+  })
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).compare).toBe(true)
+})
+
+test('compare: selectVariant switches which variant the canvas shows (default A)', async () => {
+  vi.stubGlobal('fetch', compareStream())
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('plan rome', { compare: true })
+  })
+  await waitFor(() => expect(result.current.variants).not.toBeNull())
+  expect(result.current.activeVariant).toBe('A')
+  act(() => result.current.selectVariant('B'))
+  expect(result.current.activeVariant).toBe('B')
+  act(() => result.current.selectVariant('A'))
+  expect(result.current.activeVariant).toBe('A')
+})
+
+test('compare: keeping a variant commits it, exposes its map, and collapses the compare view', async () => {
+  vi.stubGlobal('fetch', compareStream())
+  const cb = vi.fn()
+  const { result } = renderHook(() => useChat({ onItineraryDelivered: cb }))
+  await act(async () => {
+    await result.current.sendMessage('plan rome', { compare: true })
+  })
+  await waitFor(() => expect(result.current.variants).not.toBeNull())
+  expect(cb).not.toHaveBeenCalled()
+
+  const keepMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ itinerary: '# Trip to Rome (B)' }) }))
+  vi.stubGlobal('fetch', keepMock)
+  await act(async () => {
+    await result.current.keepVariant('B')
+  })
+
+  await waitFor(() => expect(result.current.variants).toBeNull())
+  const ai = result.current.messages.find((m) => m.role === 'ai' && m.isItinerary)
+  expect(ai.content).toContain('(B)')
+  expect(result.current.itineraryGeo).toEqual(GEO_B)
+  expect(cb).toHaveBeenCalledWith({ isEdit: false })
+  const body = JSON.parse(keepMock.mock.calls[0][1].body)
+  expect(body).toMatchObject({ session_id: 'sess-cmp', variant: 'B' })
+})
+
+test('compare: an interview turn under compare mode stays a normal reply (no variants)', async () => {
+  // No compiler stage runs for an interview question, so compare must not engage.
+  vi.stubGlobal(
+    'fetch',
+    streamingFetch([
+      'data: {"type":"status","node":"interviewer","content":"thinking","variant":"A"}\n\n',
+      'data: {"type":"token","content":"How many days?","variant":"A"}\n\n',
+      'data: {"type":"end","is_itinerary":false,"is_final":true,"variant":"A"}\n\n',
+    ]),
+  )
+  const { result } = renderHook(() => useChat())
+  await act(async () => {
+    await result.current.sendMessage('hi', { compare: true })
+  })
+  await waitFor(() =>
+    expect(result.current.messages.some((m) => m.role === 'ai' && m.content.includes('How many days?'))).toBe(true),
+  )
+  expect(result.current.variants).toBeNull()
+})
+
 test('loader: a status event sets a themed planning stage (instrument + a line from its pool)', async () => {
   vi.stubGlobal('fetch', hangingFetch('data: {"type":"status","content":"x","node":"logistics"}\n\n'))
   const { result } = renderHook(() => useChat())
