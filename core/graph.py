@@ -81,3 +81,14 @@ workflow.add_conditional_edges("compiler", router)
 workflow.add_conditional_edges("critic", router)
 
 app = workflow.compile()
+
+
+# A second, minimal graph for variant B of an A/B compare request: it re-runs only the compiler on
+# variant A's already-researched data, so a compare request costs one extra compile rather than a
+# second full research+logistics+critic pipeline. The compiler's regenerate path diversifies the
+# result against variant A.
+variant_workflow = StateGraph(AgentState)
+variant_workflow.add_node("compiler", compiler_node)
+variant_workflow.add_edge(START, "compiler")
+variant_workflow.add_edge("compiler", END)
+variant_app = variant_workflow.compile()

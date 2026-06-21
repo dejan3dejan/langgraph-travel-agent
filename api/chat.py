@@ -3,7 +3,6 @@
 import asyncio
 import json
 import uuid
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -25,6 +24,12 @@ orchestrator = TravelOrchestrator()
 class ChatMessage(BaseModel):
     session_id: str | None = None
     message: str = Field(..., min_length=1, max_length=2000)
+    compare: bool = False  # opt-in: produce two itinerary variants (A/B) for a fresh plan
+
+
+class KeepVariant(BaseModel):
+    session_id: str
+    variant: str = Field(..., pattern="^[AB]$")
 
 
 class ChatResponse(BaseModel):
@@ -85,6 +90,54 @@ def _merge_geo(existing_geo: dict | None, new_geo: dict | None) -> dict | None:
     """Keep the prior map when an edit carries no fresh coordinates (an in-place text edit doesn't
     re-geocode); otherwise take the new payload."""
     return new_geo if new_geo is not None else existing_geo
+
+
+# Compare mode: per-variant stream accumulation and keep-variant selection
+
+
+def _new_variant_buckets() -> dict:
+    """Empty A/B buckets the stream folds tokens and geo into. Untagged (single-itinerary) events
+    fold into bucket A, so this also backs the normal flow."""
+    return {"A": {"text": "", "geo": None}, "B": {"text": "", "geo": None}}
+
+
+def _new_variant_meta() -> dict:
+    """Variant-A metadata captured from its end event, used to persist (or stage) after the stream."""
+    return {"is_itinerary": False, "is_edit": False, "user_details": {}}
+
+
+def _apply_stream_event(variants: dict, meta: dict, event: dict) -> None:
+    """Fold one stream event into the per-variant buckets and the variant-A meta, so the stream's
+    finally block can persist or stage without re-deriving anything. Untagged events (the
+    single-itinerary flow) fold into bucket A."""
+    variant = event.get("variant") or "A"
+    if variant not in variants:
+        return
+    etype = event.get("type")
+    if etype == "reset":
+        variants[variant]["text"] = ""
+    elif etype == "token":
+        variants[variant]["text"] += event.get("content", "")
+    elif etype == "end":
+        variants[variant]["geo"] = event.get("geo")
+        if variant == "A":
+            meta["is_itinerary"] = event.get("is_itinerary", False)
+            meta["is_edit"] = event.get("is_edit", False)
+            meta["user_details"] = event.get("user_details", {})
+
+
+def _should_stage(variants: dict) -> bool:
+    """True when a second variant was actually produced (B has streamed text), so the two are staged
+    for the user to choose. Otherwise the turn is a single result and persists normally."""
+    return bool(variants["B"]["text"].strip())
+
+
+def _select_variant(pending: dict | None, variant: str) -> dict | None:
+    """The staged {text, geo} for the chosen tag, or None when nothing is staged or the tag is
+    unknown. Guards the keep endpoint against a stale or malformed selection."""
+    if not pending or variant not in ("A", "B"):
+        return None
+    return pending.get(variant)
 
 
 def _upsert_trip(
@@ -175,6 +228,64 @@ def _remember_user_prefs(db: Session, user: User | None, user_details: dict) -> 
         logger.info(f"Remembered constraints for user {user.id}")
 
 
+def _persist_single_turn(
+    session_id: str, history: list, user_text: str, bucket: dict, meta: dict, user: User | None
+) -> None:
+    """Commit a single delivered turn: append the user message and the model reply to history, and for
+    an itinerary upsert the trip and remember durable prefs. Owns its own DB session because the
+    request's session is gone by the time the stream's finally runs."""
+    persist_db = SessionLocal()
+    try:
+        active = persist_db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+        if not active:
+            return
+        new_history = list(history)
+        new_history.append({"role": "user", "content": user_text})
+        new_history.append({"role": "model", "content": bucket["text"]})
+        active.data["history"] = new_history
+        flag_modified(active, "data")
+        if meta.get("is_itinerary"):
+            _upsert_trip(
+                persist_db,
+                session_id,
+                user,
+                meta.get("user_details", {}),
+                bucket["text"],
+                meta.get("is_edit", False),
+                geo=bucket.get("geo"),
+            )
+            _remember_user_prefs(persist_db, user, meta.get("user_details", {}))
+        persist_db.commit()
+        logger.info(f"Stream data persisted for session {session_id}")
+    except Exception as save_err:
+        logger.error(f"Final persistence failed: {save_err}")
+    finally:
+        persist_db.close()
+
+
+def _stage_pending_variants(session_id: str, variants: dict, user_details: dict, user_text: str) -> None:
+    """Stash both unsaved itinerary variants on the session so a later keep-variant call can commit the
+    chosen one. Nothing reaches history or the trips list until the user keeps a variant."""
+    persist_db = SessionLocal()
+    try:
+        active = persist_db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+        if not active:
+            return
+        active.data["pending_variants"] = {
+            "A": {"text": variants["A"]["text"], "geo": variants["A"]["geo"]},
+            "B": {"text": variants["B"]["text"], "geo": variants["B"]["geo"]},
+            "user_details": user_details,
+            "message": user_text,
+        }
+        flag_modified(active, "data")
+        persist_db.commit()
+        logger.info(f"Staged two itinerary variants for session {session_id}")
+    except Exception as save_err:
+        logger.error(f"Staging variants failed: {save_err}")
+    finally:
+        persist_db.close()
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     chat_message: ChatMessage,
@@ -233,8 +344,8 @@ async def chat_stream(
         db.commit()
 
     async def event_generator():
-        accumulated_data = {"itinerary": "", "completed": False, "start_time": datetime.now(UTC)}
-        is_itinerary = False
+        variants = _new_variant_buckets()
+        meta = _new_variant_meta()
         cancelled = False
 
         try:
@@ -242,18 +353,8 @@ async def chat_stream(
             # (this is what gives the web UI cross-turn memory).
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
 
-            async for event in orchestrator.stream_chat(user_text, history, prefs):
-                if event["type"] == "reset":
-                    accumulated_data["itinerary"] = ""
-                elif event["type"] == "token":
-                    accumulated_data["itinerary"] += event["content"]
-                elif event["type"] == "end":
-                    accumulated_data["completed"] = True
-                    is_itinerary = event.get("is_itinerary", False)
-                    accumulated_data["user_details"] = event.get("user_details", {})
-                    accumulated_data["is_edit"] = event.get("is_edit", False)
-                    accumulated_data["geo"] = event.get("geo")
-
+            async for event in orchestrator.stream_chat(user_text, history, prefs, compare=chat_message.compare):
+                _apply_stream_event(variants, meta, event)
                 yield f"data: {json.dumps(event)}\n\n"
 
         except asyncio.CancelledError:
@@ -265,40 +366,66 @@ async def chat_stream(
             yield f'data: {json.dumps({"type": "error", "content": "An internal error occurred."})}\n\n'
         finally:
             # On client cancel we discard the partial so a stopped turn leaves no ghost in history.
-            if not cancelled and accumulated_data["itinerary"].strip():
-                persist_db = SessionLocal()
-                try:
-                    new_history = list(history)
-                    new_history.append({"role": "user", "content": user_text})
-                    new_history.append({"role": "model", "content": accumulated_data["itinerary"]})
-
-                    active_session = persist_db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
-
-                    if active_session:
-                        active_session.data["history"] = new_history
-                        flag_modified(active_session, "data")
-
-                        if is_itinerary:
-                            _upsert_trip(
-                                persist_db,
-                                session_id,
-                                user,
-                                accumulated_data.get("user_details", {}),
-                                accumulated_data["itinerary"],
-                                accumulated_data.get("is_edit", False),
-                                geo=accumulated_data.get("geo"),
-                            )
-                            _remember_user_prefs(persist_db, user, accumulated_data.get("user_details", {}))
-
-                        persist_db.commit()
-                        logger.info(f"Stream data persisted for session {session_id}")
-                except Exception as save_err:
-                    logger.error(f"Final persistence failed: {save_err}")
-                finally:
-                    persist_db.close()
+            if cancelled:
+                pass
+            elif _should_stage(variants):
+                # Two variants were produced: stage them and commit nothing until the user keeps one.
+                _stage_pending_variants(session_id, variants, meta.get("user_details", {}), user_text)
+            elif variants["A"]["text"].strip():
+                _persist_single_turn(session_id, history, user_text, variants["A"], meta, user)
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/chat/keep-variant", response_model=ChatResponse)
+async def keep_variant(
+    payload: KeepVariant,
+    user: User | None = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Commit the variant the user chose from an A/B compare. Appends the original request and the
+    chosen itinerary to history, upserts the trip, clears the staged variants, and collapses the
+    session back to the single-itinerary flow."""
+    db_session = db.query(ChatSession).filter(ChatSession.session_id == payload.session_id).first()
+    if not db_session:
+        return ChatResponse(session_id=payload.session_id, message="Session not found.", state="error")
+
+    pending = (db_session.data or {}).get("pending_variants")
+    chosen = _select_variant(pending, payload.variant)
+    if not chosen or not (chosen.get("text") or "").strip():
+        return ChatResponse(session_id=payload.session_id, message="No variant to keep.", state="error")
+
+    try:
+        history = db_session.data.get("history", [])
+        history.append({"role": "user", "content": pending["message"]})
+        history.append({"role": "model", "content": chosen["text"]})
+        db_session.data["history"] = history
+        db_session.data.pop("pending_variants", None)
+        flag_modified(db_session, "data")
+
+        _upsert_trip(
+            db,
+            payload.session_id,
+            user,
+            pending.get("user_details", {}),
+            chosen["text"],
+            is_edit=False,
+            geo=chosen.get("geo"),
+        )
+        _remember_user_prefs(db, user, pending.get("user_details", {}))
+        db.commit()
+        logger.info(f"Kept variant {payload.variant} for session {payload.session_id}")
+    except Exception as e:
+        logger.error(f"Failed to keep variant: {e}")
+        return ChatResponse(session_id=payload.session_id, message="Could not save your choice.", state="error")
+
+    return ChatResponse(
+        session_id=payload.session_id,
+        message="Saved your selected itinerary!",
+        state="completed",
+        itinerary=chosen["text"],
     )
