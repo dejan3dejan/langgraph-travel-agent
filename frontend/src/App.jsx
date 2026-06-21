@@ -27,10 +27,12 @@ export default function App() {
   const [viewedItineraryIndex, setViewedItineraryIndex] = useState(null)
   // A chunk of the itinerary the user picked to quote into their next message; null when none.
   const [pendingQuote, setPendingQuote] = useState(null)
+  // Opt-in: when on, a fresh plan request asks the backend for two variants to compare.
+  const [compareMode, setCompareMode] = useState(false)
   // Nudge an anonymous user to sign up once per conversation, not on every regenerate, and never
   // after they dismiss it. Resets when a new chat clears the messages.
   const signupNudgedRef = useRef(false)
-  const { messages, isStreaming, itineraryGeo, planningStage, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate } = useChat({
+  const { messages, isStreaming, itineraryGeo, planningStage, variants, activeVariant, selectVariant, keepVariant, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate } = useChat({
     onItineraryDelivered: ({ isEdit } = {}) => {
       // A delivered plan is the thing to look at, so surface the canvas on mobile and follow it.
       setMobileView('canvas')
@@ -52,9 +54,17 @@ export default function App() {
   const [entered, setEntered] = useState(() => localStorage.getItem('atlas_entered') === '1')
   const chatEndRef = useRef(null)
 
+  // Two streamed itinerary variants waiting to be compared and chosen between.
+  const comparing = !!variants
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, planningStage])
+
+  // When the compare view opens, surface the canvas on mobile so the variants are visible.
+  useEffect(() => {
+    if (comparing) setMobileView('canvas')
+  }, [comparing])
 
   // A new chat (or sign-out) clears the messages, so let the next plan nudge signup again and drop
   // any selection staged for quoting, which belongs to the conversation that just ended.
@@ -76,8 +86,9 @@ export default function App() {
 
   const hasMessages = messages.length > 0
   const showRetry = !isStreaming && messages[messages.length - 1]?.isError
-  // The dead air between sending and the first streamed token: research, logistics, compile.
-  const planning = isStreaming && !messages.some((m) => m.role === 'ai-stream')
+  // The dead air between sending and the first streamed token: research, logistics, compile. While
+  // comparing, the variants build in the canvas, so the chat loader steps aside.
+  const planning = isStreaming && !messages.some((m) => m.role === 'ai-stream') && !comparing
 
   // The presence of an itinerary is what splits the view. The canvas follows the latest by default,
   // but an older ItineraryCard can pin its own version back into the canvas.
@@ -85,9 +96,14 @@ export default function App() {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].isItinerary) { latestItineraryIndex = i; break }
   }
-  const split = latestItineraryIndex >= 0
+  // An itinerary, or two variants being compared, splits the view into chat + canvas.
+  const split = latestItineraryIndex >= 0 || comparing
   const viewedIndex = messages[viewedItineraryIndex]?.isItinerary ? viewedItineraryIndex : latestItineraryIndex
-  const viewedItinerary = split ? messages[viewedIndex] : null
+  const viewedItinerary = latestItineraryIndex >= 0 ? messages[viewedIndex] : null
+  const activeVariantData = comparing ? variants[activeVariant] || { content: '', geo: null } : null
+
+  // A fresh plan can be requested as two variants; edits and follow-ups (once a plan exists) never are.
+  const handleSend = (text) => sendMessage(text, { compare: compareMode && !split })
 
   // Sign out also resets the chat so the next person does not inherit the session.
   const handleSignOut = () => {
@@ -149,11 +165,14 @@ export default function App() {
 
   const inputBar = (
     <InputBar
-      onSend={sendMessage}
+      onSend={handleSend}
       isStreaming={isStreaming}
       onStop={stopStreaming}
       quote={pendingQuote}
       onClearQuote={() => setPendingQuote(null)}
+      showCompare={!split}
+      compareMode={compareMode}
+      onToggleCompare={() => setCompareMode((on) => !on)}
     />
   )
 
@@ -180,7 +199,7 @@ export default function App() {
       )}
 
       {!hasMessages ? (
-        <Welcome onPrompt={sendMessage} />
+        <Welcome onPrompt={handleSend} />
       ) : split ? (
         <div className="workspace">
           <div className={`workspace__chat ${mobileView === 'chat' ? 'is-active' : ''}`}>
@@ -188,17 +207,28 @@ export default function App() {
             {inputBar}
           </div>
           <div className={`workspace__canvas ${mobileView === 'canvas' ? 'is-active' : ''}`}>
-            <Canvas
-              itinerary={viewedItinerary}
-              geo={itineraryGeo}
-              onRegenerate={regenerate}
-              isStreaming={isStreaming}
-              onShare={() => share.share({ itinerary_text: viewedItinerary?.content, geo: itineraryGeo })}
-              shareStatus={share.status}
-              onUnshare={share.unshare}
-              isShared={share.isShared}
-              onAddToChat={(text) => { setPendingQuote(text); setMobileView('chat') }}
-            />
+            {comparing ? (
+              <Canvas
+                itinerary={{ content: activeVariantData.content }}
+                geo={activeVariantData.geo}
+                isStreaming={isStreaming}
+                variant={activeVariant}
+                onSelectVariant={selectVariant}
+                onKeepVariant={keepVariant}
+              />
+            ) : (
+              <Canvas
+                itinerary={viewedItinerary}
+                geo={itineraryGeo}
+                onRegenerate={regenerate}
+                isStreaming={isStreaming}
+                onShare={() => share.share({ itinerary_text: viewedItinerary?.content, geo: itineraryGeo })}
+                shareStatus={share.status}
+                onUnshare={share.unshare}
+                isShared={share.isShared}
+                onAddToChat={(text) => { setPendingQuote(text); setMobileView('chat') }}
+              />
+            )}
           </div>
         </div>
       ) : (

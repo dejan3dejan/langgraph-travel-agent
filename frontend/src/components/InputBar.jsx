@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { buildQuotedMessage } from '../quote'
 
-export default function InputBar({ onSend, isStreaming, onStop, quote, onClearQuote }) {
+export default function InputBar({ onSend, isStreaming, onStop, quote, onClearQuote, showCompare = false, compareMode = false, onToggleCompare }) {
   const [text, setText] = useState('')
   const textareaRef = useRef(null)
 
@@ -37,6 +37,17 @@ export default function InputBar({ onSend, isStreaming, onStop, quote, onClearQu
 
   return (
     <div className="input-bar">
+      {showCompare && (
+        <button
+          type="button"
+          className={`compare-toggle ${compareMode ? 'is-on' : ''}`}
+          onClick={onToggleCompare}
+          aria-pressed={compareMode}
+          title="Plan two itineraries side by side and pick your favorite"
+        >
+          Compare two options
+        </button>
+      )}
       {quote && (
         <div className="input-quote">
           <span className="input-quote__label">Editing</span>

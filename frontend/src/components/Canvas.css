@@ -63,6 +63,60 @@
   .canvas__action--busy svg { animation: none; }
 }
 
+/* Compare mode: the A|B segmented switch and the keep action, shown instead of the committed-plan
+   actions while two draft itineraries are being compared. */
+.canvas__compare {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.canvas__variant-toggle {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  box-shadow: var(--shadow-pressed);
+}
+
+.canvas__variant-btn {
+  border: none;
+  border-radius: calc(var(--r-sm) - 2px);
+  padding: 6px 12px;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.canvas__variant-btn.is-active {
+  color: var(--accent);
+  background: var(--bg);
+  box-shadow: var(--shadow-card);
+}
+
+.canvas__keep {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--r-sm);
+  padding: 8px 14px;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-fg);
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: var(--shadow-floating);
+  transition: filter 0.15s, transform 0.15s var(--ease-spring), box-shadow 0.15s;
+}
+
+.canvas__keep:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.canvas__keep:active { transform: translateY(1px); box-shadow: var(--shadow-pressed); }
+.canvas__keep:disabled { cursor: default; opacity: 0.6; box-shadow: var(--shadow-pressed); transform: none; filter: none; }
+
 /* The map stays pinned below the header while the itinerary scrolls, so it never drifts off. */
 .canvas__map {
   flex-shrink: 0;

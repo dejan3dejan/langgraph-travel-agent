@@ -157,6 +157,53 @@ test('an empty selection does not show the add-to-chat button', () => {
   expect(screen.queryByRole('button', { name: /add to chat/i })).toBeNull()
 })
 
+test('compare: shows an A|B switch and a keep button, and hides the committed-plan actions', () => {
+  render(
+    <Canvas
+      itinerary={{ content: '# Trip to Rome (A)' }}
+      geo={GEO}
+      variant="A"
+      onSelectVariant={() => {}}
+      onKeepVariant={() => {}}
+      onRegenerate={() => {}}
+      onShare={() => {}}
+      shareStatus="idle"
+      isStreaming={false}
+    />,
+  )
+  expect(screen.getByRole('button', { name: /option a/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /option b/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /keep this one/i })).toBeInTheDocument()
+  // regenerate/share belong to a committed itinerary, not an A/B draft
+  expect(screen.queryByRole('button', { name: /regenerate/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^share$/i })).toBeNull()
+})
+
+test('compare: selecting a variant calls onSelectVariant', () => {
+  const onSelectVariant = vi.fn()
+  render(
+    <Canvas itinerary={{ content: '# A' }} geo={GEO} variant="A" onSelectVariant={onSelectVariant} onKeepVariant={() => {}} />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /option b/i }))
+  expect(onSelectVariant).toHaveBeenCalledWith('B')
+})
+
+test('compare: keep calls onKeepVariant with the active variant', () => {
+  const onKeepVariant = vi.fn()
+  render(
+    <Canvas itinerary={{ content: '# B' }} geo={GEO} variant="B" onSelectVariant={() => {}} onKeepVariant={onKeepVariant} />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /keep this one/i }))
+  expect(onKeepVariant).toHaveBeenCalledWith('B')
+})
+
+test('compare: keep is disabled while the variants are still streaming', () => {
+  render(
+    <Canvas itinerary={{ content: '# A' }} geo={GEO} variant="A" onSelectVariant={() => {}} onKeepVariant={() => {}} isStreaming />,
+  )
+  expect(screen.getByRole('button', { name: /keep this one/i })).toBeDisabled()
+})
+
 test('passes the edit summary through to the itinerary', () => {
   render(
     <Canvas

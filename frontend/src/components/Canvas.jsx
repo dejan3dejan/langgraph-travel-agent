@@ -69,7 +69,8 @@ const SHARE_LABEL = { sharing: 'Sharing', copied: 'Link copied', error: 'Share f
 
 // The persistent artifact pane. The title and map stay pinned at the top while the itinerary text
 // and day cards scroll underneath, so the map never scrolls out of reach.
-export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onShare, shareStatus = 'idle', onUnshare, isShared = false, onAddToChat }) {
+export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onShare, shareStatus = 'idle', onUnshare, isShared = false, onAddToChat, variant, onSelectVariant, onKeepVariant }) {
+  const comparing = !!variant
   const heading = itinerary?.content?.match(/^#\s+(.+)$/m)?.[1]
   const title = heading || 'Your itinerary'
   const [copied, setCopied] = useState(false)
@@ -123,7 +124,38 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
     <div className="canvas">
       <header className="canvas__header">
         <h2 className="canvas__title">{title}</h2>
-        {itinerary && onRegenerate && (
+        {comparing && (
+          <div className="canvas__compare">
+            <div className="canvas__variant-toggle" role="group" aria-label="Compare itineraries">
+              <button
+                type="button"
+                className={`canvas__variant-btn ${variant === 'A' ? 'is-active' : ''}`}
+                onClick={() => onSelectVariant('A')}
+                aria-pressed={variant === 'A'}
+              >
+                Option A
+              </button>
+              <button
+                type="button"
+                className={`canvas__variant-btn ${variant === 'B' ? 'is-active' : ''}`}
+                onClick={() => onSelectVariant('B')}
+                aria-pressed={variant === 'B'}
+              >
+                Option B
+              </button>
+            </div>
+            <button
+              type="button"
+              className="canvas__keep"
+              onClick={() => onKeepVariant(variant)}
+              disabled={isStreaming}
+              title="Keep this itinerary and discard the other"
+            >
+              Keep this one
+            </button>
+          </div>
+        )}
+        {!comparing && itinerary && onRegenerate && (
           <button
             type="button"
             className={`canvas__action ${isStreaming ? 'canvas__action--busy' : ''}`}
@@ -135,7 +167,7 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
             <RefreshIcon />
           </button>
         )}
-        {itinerary && (
+        {!comparing && itinerary && (
           <button
             type="button"
             className="canvas__action"
@@ -146,7 +178,7 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
             {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
         )}
-        {itinerary && (
+        {!comparing && itinerary && (
           <button
             type="button"
             className="canvas__action"
@@ -157,7 +189,7 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
             <DownloadIcon />
           </button>
         )}
-        {itinerary && onShare && (
+        {!comparing && itinerary && onShare && (
           <button
             type="button"
             className="canvas__action"
@@ -169,7 +201,7 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
             {shareStatus === 'copied' ? <CheckIcon /> : <ShareIcon />}
           </button>
         )}
-        {itinerary && onShare && onUnshare && isShared && (
+        {!comparing && itinerary && onShare && onUnshare && isShared && (
           <button
             type="button"
             className="canvas__action"

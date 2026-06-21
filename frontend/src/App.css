@@ -397,6 +397,25 @@
   padding: 16px 6px 24px;
 }
 
+/* Opt-in compare switch above the input, shown only before a plan exists. Pressed-in when on. */
+.compare-toggle {
+  margin-bottom: 10px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: color 0.2s, box-shadow 0.2s;
+}
+
+.compare-toggle:hover { color: var(--accent); }
+.compare-toggle.is-on { color: var(--accent); box-shadow: var(--shadow-pressed); }
+
 /* A recessed chip above the input showing the itinerary section the next message will quote. */
 .input-quote {
   display: flex;

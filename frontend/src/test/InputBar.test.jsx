@@ -31,3 +31,17 @@ test('sending with a pending quote includes the quote then clears it', () => {
   expect(onSend).toHaveBeenCalledWith(buildQuotedMessage('Day 2: Trastevere', 'make this cheaper'))
   expect(onClearQuote).toHaveBeenCalledTimes(1)
 })
+
+test('shows the compare toggle only when allowed, and toggling calls back', () => {
+  const onToggleCompare = vi.fn()
+  const { rerender } = render(<InputBar onSend={() => {}} isStreaming={false} onStop={() => {}} showCompare={false} />)
+  expect(screen.queryByRole('button', { name: /compare two options/i })).toBeNull()
+
+  rerender(
+    <InputBar onSend={() => {}} isStreaming={false} onStop={() => {}} showCompare compareMode={false} onToggleCompare={onToggleCompare} />,
+  )
+  const toggle = screen.getByRole('button', { name: /compare two options/i })
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  fireEvent.click(toggle)
+  expect(onToggleCompare).toHaveBeenCalledTimes(1)
+})
