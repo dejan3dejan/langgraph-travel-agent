@@ -12,6 +12,7 @@ from fastapi.security import APIKeyHeader
 
 from api.chat import router as chat_router
 from api.export import router as export_router
+from api.feedback import router as feedback_router
 from api.share import router as share_router
 from api.users import router as users_router
 from core.database import SessionLocal, engine, init_db
@@ -146,6 +147,7 @@ async def observability_middleware(request: Request, call_next):
 
 app.include_router(chat_router, prefix="/api", tags=["chat"])
 app.include_router(export_router, prefix="/api/export", tags=["export"])
+app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(share_router, prefix="/api/share", tags=["share"])
 app.include_router(users_router, prefix="/api/users", tags=["users"])
 

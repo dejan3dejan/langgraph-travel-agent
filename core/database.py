@@ -7,7 +7,19 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+)
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 from .logger import get_logger
@@ -108,6 +120,28 @@ class SharedItinerary(Base):
     revoke_token = Column(String, nullable=True)  # owner secret; required to delete the snapshot
     expires_at = Column(DateTime, nullable=True)  # past this the public GET 404s; null never expires
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    # One table backs every feedback context. kind says which: 'plan' (rate a delivered itinerary),
+    # 'compare' (why one A/B variant over the other), or 'app' (general feedback / bug report).
+    # Both rating and message are optional, but a row must carry at least one (DB check below).
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    kind = Column(String, nullable=False)
+    rating = Column(Integer, nullable=True)  # 1-5 stars when given
+    message = Column(Text, nullable=True)
+    session_id = Column(String, ForeignKey("chat_sessions.session_id"), index=True, nullable=True)
+    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=True)
+    context = Column(JSON, nullable=True)  # kind-specific extras, e.g. {"chosen": "B"} for compare
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        CheckConstraint("kind in ('plan', 'compare', 'app')", name="feedback_kind_valid"),
+        CheckConstraint("rating is null or (rating >= 1 and rating <= 5)", name="feedback_rating_range"),
+        CheckConstraint("rating is not null or message is not null", name="feedback_has_content"),
+    )
 
 
 class GeocodingCache(Base):
