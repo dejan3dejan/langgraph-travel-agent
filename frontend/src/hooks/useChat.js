@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { stageFor } from '../planningStages'
 import { apiUrl } from '../api'
+import { readAnonPrefs } from './useProfile'
 
 // Map stored {user, model} history into UI message shape, marking itinerary messages so they
 // render as markdown.
@@ -100,14 +101,22 @@ export function useChat({ onItineraryDelivered } = {}) {
       const token = localStorage.getItem('atlas_token')
       if (token) headers.Authorization = `Bearer ${token}`
 
+      const body = {
+        message: text,
+        session_id: sessionIdRef.current,
+        compare: !!opts.compare,
+      }
+      // Anonymous users have no saved profile, so carry their intake prefs with the request to seed
+      // the plan. Authed users are seeded server-side from their profile, so this is omitted.
+      if (!token) {
+        const prefs = readAnonPrefs()
+        if (prefs) body.client_prefs = prefs
+      }
+
       const res = await fetch(apiUrl('/api/chat/stream'), {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          message: text,
-          session_id: sessionIdRef.current,
-          compare: !!opts.compare,
-        }),
+        body: JSON.stringify(body),
         signal: abortRef.current.signal,
       })
 

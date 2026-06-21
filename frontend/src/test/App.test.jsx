@@ -29,8 +29,24 @@ function queuedFetch(responses) {
 beforeEach(() => {
   localStorage.clear()
   localStorage.setItem('atlas_entered', '1')
+  // These tests cover the chat flow, so start past the first-run intake gate.
+  localStorage.setItem('atlas_intake_done', '1')
 })
 afterEach(() => vi.unstubAllGlobals())
+
+test('a first-run anonymous user sees the skippable intake before the welcome screen', () => {
+  localStorage.removeItem('atlas_intake_done')
+  render(<App />)
+
+  expect(screen.getByRole('button', { name: /start planning/i })).toBeInTheDocument()
+  expect(screen.queryByText(/Where shall we/i)).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: /skip for now/i }))
+
+  // Skipping reveals the normal welcome screen and records the choice.
+  expect(screen.getByText(/Where shall we/i)).toBeInTheDocument()
+  expect(localStorage.getItem('atlas_intake_done')).toBe('1')
+})
 
 test('stays full-width chat until a plan lands, then splits with the itinerary in the canvas', async () => {
   const geo = {

@@ -5,8 +5,10 @@ import { useAuth } from './hooks/useAuth'
 import { useTrips } from './hooks/useTrips'
 import { useShare } from './hooks/useShare'
 import { useFeedback } from './hooks/useFeedback'
+import { useProfile } from './hooks/useProfile'
 import Header from './components/Header'
 import Welcome from './components/Welcome'
+import Intake from './components/Intake'
 import Message from './components/Message'
 import InputBar from './components/InputBar'
 import AuthModal from './components/AuthModal'
@@ -69,6 +71,7 @@ export default function App() {
   const trips = useTrips(auth.user)
   const share = useShare()
   const feedback = useFeedback()
+  const profile = useProfile(auth.user)
   const [authOpen, setAuthOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [entered, setEntered] = useState(() => localStorage.getItem('atlas_entered') === '1')
@@ -106,6 +109,9 @@ export default function App() {
   }, [])
 
   const hasMessages = messages.length > 0
+  // First-run intake is for anonymous users only: a signed-in user already has a saved profile that
+  // seeds their plans. It precedes the welcome screen and is fully skippable.
+  const showIntake = !auth.user && !profile.intakeDone && !hasMessages
   const showRetry = !isStreaming && messages[messages.length - 1]?.isError
   // The dead air between sending and the first streamed token: research, logistics, compile. While
   // comparing, the variants build in the canvas, so the chat loader steps aside.
@@ -244,7 +250,11 @@ export default function App() {
       )}
 
       {!hasMessages ? (
-        <Welcome onPrompt={handleSend} />
+        showIntake ? (
+          <Intake onComplete={profile.saveIntake} onSkip={profile.skipIntake} />
+        ) : (
+          <Welcome onPrompt={handleSend} />
+        )
       ) : split ? (
         <div className="workspace">
           <div className={`workspace__chat ${mobileView === 'chat' ? 'is-active' : ''}`}>

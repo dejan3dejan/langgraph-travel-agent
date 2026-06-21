@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
 import { apiUrl } from '../api'
+import { readAnonPrefs } from './useProfile'
 
 const TOKEN_KEY = 'atlas_token'
 const USER_KEY = 'atlas_user'
+const PREFS_KEY = 'atlas_prefs'
 
 // Minimal JWT auth against /api/users. The token lives in localStorage and useChat
 // reads it from there to authorize requests, so we don't prop-drill it around.
@@ -41,7 +43,14 @@ export function useAuth() {
   const login = useCallback((email, password) => submit('login', { email, password }), [submit])
 
   const register = useCallback(
-    (email, username, password) => submit('register', { email, username, password }),
+    async (email, username, password) => {
+      // Carry the anonymous intake prefs onto the new account so signup keeps what the user already
+      // told us. Only clear them once the account exists; a failed register leaves them in place.
+      const preferences = readAnonPrefs()
+      const ok = await submit('register', { email, username, password, ...(preferences ? { preferences } : {}) })
+      if (ok) localStorage.removeItem(PREFS_KEY)
+      return ok
+    },
     [submit],
   )
 

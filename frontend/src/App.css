@@ -605,6 +605,120 @@
   max-width: 560px;
 }
 
+/* First-run intake: a recessed card holding the preference chip groups. */
+.intake {
+  flex: 1;
+  align-self: center;
+  width: 100%;
+  max-width: 560px;
+  margin: auto;
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-card);
+}
+
+.intake__heading {
+  font-family: var(--font-body);
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-shadow: 0 1px 0 var(--shadow-light);
+}
+
+.intake__heading em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.intake__sub {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-top: -8px;
+}
+
+.intake-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intake-group__label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.intake-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.intake-chip {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.15s var(--ease-spring), color 0.15s, box-shadow 0.15s;
+}
+
+.intake-chip:hover { color: var(--accent); transform: translateY(-1px); }
+
+.intake-chip.is-active {
+  color: var(--accent);
+  box-shadow: var(--shadow-pressed);
+}
+
+.intake__actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.intake__start {
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: var(--r-md);
+  padding: 12px 22px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 4px 4px 8px rgba(13,42,29,0.4), -4px -4px 8px rgba(70,150,108,0.35);
+  transition: filter 0.15s, transform 0.15s var(--ease-spring), box-shadow 0.15s;
+}
+
+.intake__start:hover { filter: brightness(1.08); }
+.intake__start:active { transform: translateY(2px); box-shadow: var(--shadow-pressed); }
+
+.intake__skip {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.intake__skip:hover { color: var(--accent); }
+
 /* prompt chips are pressable keys */
 .prompt-chip {
   padding: 12px 20px;
