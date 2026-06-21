@@ -36,7 +36,8 @@ will time out long plans. The static frontend on Vercel is fine; the backend is 
 |---------------------|----------|-------|
 | `OPENAI_API_KEY`    | yes      | Primary LLM + embeddings provider. |
 | `GEMINI_API_KEY`    | yes      | Fallback LLM provider. |
-| `JWT_SECRET_KEY`    | yes      | Real secret in production. Generate: `python -c "import secrets; print(secrets.token_hex(32))"`. Do not ship the `change-this-in-production` placeholder. |
+| `ENVIRONMENT`       | yes      | Set to `production`. This makes the app refuse to start unless `JWT_SECRET_KEY` is a real value, so a host can't accidentally boot with the forgeable default. Defaults to `development`. |
+| `JWT_SECRET_KEY`    | yes      | Real secret in production. Generate: `python -c "import secrets; print(secrets.token_hex(32))"`. Do not ship the `change-this-in-production` placeholder; with `ENVIRONMENT=production` the app will not start if you do. |
 | `JWT_EXPIRE_MINUTES`| no       | Token lifetime; defaults to 1440 (24h). |
 | `DATABASE_URL`      | yes      | `postgresql://user:pass@host:port/db`. For Neon append `?sslmode=require`. |
 | `CORS_ORIGINS`      | yes      | Comma-separated allowed frontend origins, e.g. `https://atlas.example.com`. Must include the deployed frontend domain or the browser blocks API calls. |

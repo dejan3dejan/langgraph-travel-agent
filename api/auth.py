@@ -14,7 +14,25 @@ from core.database import User, get_db
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-change-in-production")
+_DEV_SECRET_DEFAULT = "dev-secret-change-in-production"
+
+
+def _resolve_secret_key(secret: str | None, environment: str) -> str:
+    """Return the JWT secret, refusing the dev default in production.
+
+    A missing or default secret signs tokens with a publicly known key, so anyone
+    could forge them. Fail loud at startup in production rather than booting insecure;
+    the default stays convenient for local development.
+    """
+    if environment.lower() == "production" and (not secret or secret == _DEV_SECRET_DEFAULT):
+        raise RuntimeError(
+            "JWT_SECRET_KEY must be set to a strong value when ENVIRONMENT=production. "
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+    return secret or _DEV_SECRET_DEFAULT
+
+
+SECRET_KEY = _resolve_secret_key(os.getenv("JWT_SECRET_KEY"), os.getenv("ENVIRONMENT", "development"))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 
