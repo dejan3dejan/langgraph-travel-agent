@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { apiUrl } from '../api'
 
 function authHeaders() {
   const token = localStorage.getItem('atlas_token')
@@ -20,7 +21,7 @@ export function useTrips(user) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/users/trips', { headers: authHeaders() })
+      const res = await fetch(apiUrl('/api/users/trips'), { headers: authHeaders() })
       if (!res.ok) {
         if (res.status === 401) window.dispatchEvent(new Event('atlas-unauthorized'))
         throw new Error(`Could not load trips (${res.status})`)
@@ -38,17 +39,17 @@ export function useTrips(user) {
   }, [refresh])
 
   const remove = useCallback(async (id) => {
-    const res = await fetch(`/api/users/trips/${id}`, { method: 'DELETE', headers: authHeaders() })
+    const res = await fetch(apiUrl(`/api/users/trips/${id}`), { method: 'DELETE', headers: authHeaders() })
     if (res.ok) setTrips((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
   const getDetail = useCallback(async (id) => {
-    const res = await fetch(`/api/users/trips/${id}`, { headers: authHeaders() })
+    const res = await fetch(apiUrl(`/api/users/trips/${id}`), { headers: authHeaders() })
     return res.ok ? res.json() : null
   }, [])
 
   const getSession = useCallback(async (sessionId) => {
-    const res = await fetch(`/api/users/sessions/${sessionId}`, { headers: authHeaders() })
+    const res = await fetch(apiUrl(`/api/users/sessions/${sessionId}`), { headers: authHeaders() })
     return res.ok ? res.json() : null
   }, [])
 

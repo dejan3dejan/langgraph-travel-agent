@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Canvas from './Canvas'
+import { apiUrl } from '../api'
 import './SharedItinerary.css'
 
 // Public, read-only view of a shared itinerary snapshot. Reuses Canvas (no onShare/onRegenerate, so
@@ -22,7 +23,7 @@ export default function SharedItinerary({ id }) {
   useEffect(() => {
     let active = true
     setStatus('loading')
-    fetch(`/api/share/${id}`)
+    fetch(apiUrl(`/api/share/${id}`))
       .then((res) => {
         if (res.status === 404) return null
         if (!res.ok) throw new Error(`Could not load shared itinerary (${res.status})`)

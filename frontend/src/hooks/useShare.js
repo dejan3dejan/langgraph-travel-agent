@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { apiUrl } from '../api'
 
 const LAST_SHARE_KEY = 'atlas_last_share'
 
@@ -20,7 +21,7 @@ export function useShare() {
   const share = useCallback(async ({ itinerary_text, geo }) => {
     setStatus('sharing')
     try {
-      const res = await fetch('/api/share', {
+      const res = await fetch(apiUrl('/api/share'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itinerary_text, geo }),
@@ -47,7 +48,7 @@ export function useShare() {
   const unshare = useCallback(async () => {
     if (!lastShare?.id) return false
     try {
-      const res = await fetch(`/api/share/${lastShare.id}`, {
+      const res = await fetch(apiUrl(`/api/share/${lastShare.id}`), {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ revoke_token: lastShare.revoke_token }),

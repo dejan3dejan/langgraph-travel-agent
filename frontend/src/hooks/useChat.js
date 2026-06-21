@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { stageFor } from '../planningStages'
+import { apiUrl } from '../api'
 
 // Map stored {user, model} history into UI message shape, marking itinerary messages so they
 // render as markdown.
@@ -67,7 +68,7 @@ export function useChat({ onItineraryDelivered } = {}) {
       const token = localStorage.getItem('atlas_token')
       if (token) headers.Authorization = `Bearer ${token}`
 
-      const res = await fetch('/api/chat/stream', {
+      const res = await fetch(apiUrl('/api/chat/stream'), {
         method: 'POST',
         headers,
         body: JSON.stringify({

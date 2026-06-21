@@ -1,3 +1,4 @@
+import { apiUrl } from '../api'
 import { dayColor } from '../dayColors'
 import { directionsUrl } from '../maps'
 import { buildRouteMapSvg } from './staticMap'
@@ -107,7 +108,7 @@ async function buildMapHtml(geo) {
 // path that also works on mobile, where the browser print dialog is clumsy.
 export async function downloadItineraryPdf({ title, bodyHtml, geo }) {
   const html = buildExportHtml({ title, bodyHtml, geo, mapHtml: await buildMapHtml(geo) })
-  const res = await fetch('/api/export/pdf', {
+  const res = await fetch(apiUrl('/api/export/pdf'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ html, filename: title }),

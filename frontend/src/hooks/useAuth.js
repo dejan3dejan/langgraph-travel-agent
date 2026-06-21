@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { apiUrl } from '../api'
 
 const TOKEN_KEY = 'atlas_token'
 const USER_KEY = 'atlas_user'
@@ -17,7 +18,7 @@ export function useAuth() {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`/api/users/${path}`, {
+      const res = await fetch(apiUrl(`/api/users/${path}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, session_id: localStorage.getItem('atlas_session_id') || null }),
@@ -56,7 +57,7 @@ export function useAuth() {
     const token = localStorage.getItem(TOKEN_KEY)
     if (!token) return
     let cancelled = false
-    fetch('/api/users/me', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl('/api/users/me'), { headers: { Authorization: `Bearer ${token}` } })
       .then(async (res) => {
         if (cancelled) return
         if (res.ok) {
