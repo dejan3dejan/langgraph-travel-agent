@@ -24,4 +24,6 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# sh -c so $PORT (injected by Render and similar hosts) expands, falling back to 8000 locally;
+# exec replaces the shell with uvicorn so it receives SIGTERM directly and shuts down cleanly.
+CMD ["sh", "-c", "exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
