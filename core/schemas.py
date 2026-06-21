@@ -15,6 +15,94 @@ class TravelConstraints(BaseModel):
     soft: list[str] = Field(default_factory=list, description="Preferences to honor when possible: pace, vibe, timing")
 
 
+class IntakePrefs(BaseModel):
+    """Preferences captured by the first-run intake, or carried in localStorage for an anonymous
+    user. Client-supplied and untrusted: every field is optional and the mappers below clamp lengths
+    and list sizes before any value reaches a prompt."""
+
+    home_city: str | None = None
+    budget: Literal["Low", "Medium", "High"] | None = None
+    pace: Literal["relaxed", "balanced", "packed"] | None = None
+    vibe: str | None = None
+    interests: list[str] | None = None
+    dietary: list[str] | None = None
+
+
+_MAX_FIELD_LEN = 80
+_MAX_LIST_ITEMS = 10
+
+
+def _clip(value: str | None, limit: int = _MAX_FIELD_LEN) -> str:
+    return (value or "").strip()[:limit]
+
+
+def _clip_list(items: list[str] | None, item_limit: int = _MAX_FIELD_LEN) -> list[str]:
+    """Strip, drop blanks, clamp each entry, and cap the list length."""
+    out = []
+    for item in items or []:
+        cleaned = _clip(item, item_limit)
+        if cleaned:
+            out.append(cleaned)
+        if len(out) >= _MAX_LIST_ITEMS:
+            break
+    return out
+
+
+# Pace maps to a soft preference; balanced is the neutral default and carries no signal.
+_PACE_SOFT = {"relaxed": "relaxed pace", "packed": "packed schedule"}
+
+
+def _intake_constraints(prefs: IntakePrefs) -> dict | None:
+    """Build the {hard, soft} constraint set from dietary needs (hard) and pace (soft)."""
+    hard = _clip_list(prefs.dietary)
+    soft = [_PACE_SOFT[prefs.pace]] if prefs.pace in _PACE_SOFT else []
+    return {"hard": hard, "soft": soft} if (hard or soft) else None
+
+
+def intake_to_seeded(prefs: IntakePrefs | None) -> dict | None:
+    """Map intake prefs into the seeded-prefs shape the interviewer consumes (same keys as
+    api.chat._seeded_prefs). Returns None when nothing was provided, so an empty intake seeds
+    nothing. Pure and clamped: this is the boundary where untrusted client values are bounded
+    before they reach the extraction prompt."""
+    if prefs is None:
+        return None
+    out: dict = {}
+    if prefs.budget:
+        out["budget"] = prefs.budget
+    interests = _clip_list(prefs.interests)
+    if interests:
+        out["interests"] = ", ".join(interests)
+    if home := _clip(prefs.home_city):
+        out["start_location"] = home
+    if vibe := _clip(prefs.vibe):
+        out["trip_type"] = vibe
+    constraints = _intake_constraints(prefs)
+    if constraints:
+        out["constraints"] = constraints
+    return out or None
+
+
+def intake_to_preference_columns(prefs: IntakePrefs | None) -> dict:
+    """Map intake prefs onto UserPreference column assignments for persistence at signup. Only
+    provided fields are returned, so unset ones keep their column defaults on a fresh row."""
+    if prefs is None:
+        return {}
+    out: dict = {}
+    if prefs.budget:
+        out["default_budget"] = prefs.budget
+    interests = _clip_list(prefs.interests)
+    if interests:
+        out["default_interests"] = ", ".join(interests)
+    if home := _clip(prefs.home_city):
+        out["start_location"] = home
+    if vibe := _clip(prefs.vibe):
+        out["trip_type"] = vibe
+    constraints = _intake_constraints(prefs)
+    if constraints:
+        out["travel_constraints"] = constraints
+    return out
+
+
 def render_constraints(value) -> tuple[str, str]:
     """Render constraints to (hard_text, soft_text) for prompts. Tolerant of the structured dict, a
     TravelConstraints, a legacy free-text string (treated as soft), or None."""

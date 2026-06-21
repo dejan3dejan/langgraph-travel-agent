@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from core.database import ChatSession, Trip, User, UserPreference, get_db
 from core.logger import get_logger
-from core.schemas import TravelConstraints
+from core.schemas import IntakePrefs, TravelConstraints, intake_to_preference_columns
 
 from .auth import create_access_token, hash_password, require_user, verify_password
 
@@ -22,6 +22,9 @@ class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
     password: str = Field(..., min_length=6, max_length=128)
     session_id: str | None = None
+    # Anonymous intake prefs carried over from localStorage, seeded onto the new profile so the
+    # frictionless anon-to-registered handoff keeps what the user already told us.
+    preferences: IntakePrefs | None = None
 
 
 class LoginRequest(BaseModel):
@@ -124,7 +127,7 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.flush()
 
-    prefs = UserPreference(user_id=user.id)
+    prefs = UserPreference(user_id=user.id, **intake_to_preference_columns(req.preferences))
     db.add(prefs)
 
     _claim_session(db, req.session_id, user.id)

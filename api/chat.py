@@ -13,6 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from core.database import ChatSession, SessionLocal, Trip, User, UserPreference, get_db
 from core.logger import get_logger
 from core.orchestrator import TravelOrchestrator
+from core.schemas import IntakePrefs, intake_to_seeded
 
 from .auth import get_current_user
 
@@ -25,6 +26,9 @@ class ChatMessage(BaseModel):
     session_id: str | None = None
     message: str = Field(..., min_length=1, max_length=2000)
     compare: bool = False  # opt-in: produce two itinerary variants (A/B) for a fresh plan
+    # First-run intake prefs for an anonymous user, so the very first plan is seeded without an
+    # account. Ignored once authed: the user's saved profile prefs take precedence (_resolve_prefs).
+    client_prefs: IntakePrefs | None = None
 
 
 class KeepVariant(BaseModel):
@@ -73,6 +77,12 @@ def _seeded_prefs(db: Session, user: User | None) -> dict | None:
     }
     out = {k: v for k, v in mapping.items() if v}
     return out or None
+
+
+def _resolve_prefs(saved: dict | None, client_prefs: IntakePrefs | None) -> dict | None:
+    """Pick which prefs seed the plan: an authed user's saved profile always wins; an anonymous
+    user falls back to the intake prefs the client carried. None when neither is present."""
+    return saved or intake_to_seeded(client_prefs)
 
 
 def _latest_trip(db: Session, session_id: str) -> Trip | None:
@@ -299,7 +309,7 @@ async def chat(
 
     try:
         response_text, updated_history, _, user_details, is_itinerary, is_edit = await orchestrator.chat(
-            user_text, history, _seeded_prefs(db, user)
+            user_text, history, _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
         )
 
         db_session.data["history"] = updated_history
@@ -337,7 +347,7 @@ async def chat_stream(
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
-    prefs = _seeded_prefs(db, user)
+    prefs = _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
 
     if not db_session.title or db_session.title == "New Chat":
         db_session.title = user_text[:60]
