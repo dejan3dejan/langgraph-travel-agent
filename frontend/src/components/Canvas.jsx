@@ -43,6 +43,14 @@ function DownloadIcon() {
   )
 }
 
+function StarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  )
+}
+
 function ShareIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -69,7 +77,7 @@ const SHARE_LABEL = { sharing: 'Sharing', copied: 'Link copied', error: 'Share f
 
 // The persistent artifact pane. The title and map stay pinned at the top while the itinerary text
 // and day cards scroll underneath, so the map never scrolls out of reach.
-export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onShare, shareStatus = 'idle', onUnshare, isShared = false, onAddToChat, variant, onSelectVariant, onKeepVariant }) {
+export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onShare, shareStatus = 'idle', onUnshare, isShared = false, onAddToChat, variant, onSelectVariant, onKeepVariant, onRate }) {
   const comparing = !!variant
   const heading = itinerary?.content?.match(/^#\s+(.+)$/m)?.[1]
   const title = heading || 'Your itinerary'
@@ -187,6 +195,17 @@ export default function Canvas({ itinerary, geo, onRegenerate, isStreaming, onSh
             title="Download a printable PDF"
           >
             <DownloadIcon />
+          </button>
+        )}
+        {!comparing && itinerary && onRate && (
+          <button
+            type="button"
+            className="canvas__action"
+            onClick={onRate}
+            aria-label="Rate this plan"
+            title="Rate this plan"
+          >
+            <StarIcon />
           </button>
         )}
         {!comparing && itinerary && onShare && (

@@ -328,7 +328,7 @@ export function useChat({ onItineraryDelivered } = {}) {
     setMessages(prev => [...prev, { role: 'ai', content: chosen.content, isItinerary: true }])
     setItineraryGeo(chosen.geo || { hotel: null, days: [] })
     resetCompare()
-    onItineraryRef.current?.({ isEdit: false })
+    onItineraryRef.current?.({ isEdit: false, fromCompare: true, chosen: variant })
   }, [])
 
   // Render a saved trip's itinerary as a read-only view (used by the trips sidebar).
@@ -359,5 +359,5 @@ export function useChat({ onItineraryDelivered } = {}) {
     return sendMessage('Regenerate this plan from scratch with fresh ideas.')
   }, [sendMessage])
 
-  return { messages, statuses, isStreaming, itineraryGeo, planningStage, variants, activeVariant, selectVariant, keepVariant, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate }
+  return { messages, statuses, isStreaming, itineraryGeo, planningStage, variants, activeVariant, selectVariant, keepVariant, sessionId: sessionIdRef.current, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate }
 }

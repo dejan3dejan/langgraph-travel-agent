@@ -157,6 +157,16 @@ test('an empty selection does not show the add-to-chat button', () => {
   expect(screen.queryByRole('button', { name: /add to chat/i })).toBeNull()
 })
 
+test('rate action calls onRate, and is hidden in compare mode', () => {
+  const onRate = vi.fn()
+  const { rerender } = render(<Canvas itinerary={{ content: '# Trip' }} geo={GEO} onRate={onRate} />)
+  fireEvent.click(screen.getByRole('button', { name: /rate this plan/i }))
+  expect(onRate).toHaveBeenCalledTimes(1)
+
+  rerender(<Canvas itinerary={{ content: '# A' }} geo={GEO} onRate={onRate} variant="A" onSelectVariant={() => {}} onKeepVariant={() => {}} />)
+  expect(screen.queryByRole('button', { name: /rate this plan/i })).toBeNull()
+})
+
 test('compare: shows an A|B switch and a keep button, and hides the committed-plan actions', () => {
   render(
     <Canvas

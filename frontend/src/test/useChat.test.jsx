@@ -486,7 +486,8 @@ test('compare: keeping a variant commits it, exposes its map, and collapses the 
   const ai = result.current.messages.find((m) => m.role === 'ai' && m.isItinerary)
   expect(ai.content).toContain('(B)')
   expect(result.current.itineraryGeo).toEqual(GEO_B)
-  expect(cb).toHaveBeenCalledWith({ isEdit: false })
+  // The delivered callback flags the compare-keep so the app can offer a "why this one?" rating.
+  expect(cb).toHaveBeenCalledWith({ isEdit: false, fromCompare: true, chosen: 'B' })
   const body = JSON.parse(keepMock.mock.calls[0][1].body)
   expect(body).toMatchObject({ session_id: 'sess-cmp', variant: 'B' })
 })

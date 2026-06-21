@@ -4,6 +4,7 @@ import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { useTrips } from './hooks/useTrips'
 import { useShare } from './hooks/useShare'
+import { useFeedback } from './hooks/useFeedback'
 import Header from './components/Header'
 import Welcome from './components/Welcome'
 import Message from './components/Message'
@@ -16,6 +17,8 @@ import SignupPrompt from './components/SignupPrompt'
 import Loader from './components/Loader'
 import Canvas from './components/Canvas'
 import ItineraryCard from './components/ItineraryCard'
+import FeedbackBubble from './components/FeedbackBubble'
+import FeedbackForm from './components/FeedbackForm'
 
 export default function App() {
   const auth = useAuth()
@@ -29,26 +32,43 @@ export default function App() {
   const [pendingQuote, setPendingQuote] = useState(null)
   // Opt-in: when on, a fresh plan request asks the backend for two variants to compare.
   const [compareMode, setCompareMode] = useState(false)
+  // A feedback bubble/panel to show, or null. { kind, title, placeholder, context }.
+  const [feedbackTarget, setFeedbackTarget] = useState(null)
   // Nudge an anonymous user to sign up once per conversation, not on every regenerate, and never
   // after they dismiss it. Resets when a new chat clears the messages.
   const signupNudgedRef = useRef(false)
-  const { messages, isStreaming, itineraryGeo, planningStage, variants, activeVariant, selectVariant, keepVariant, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate } = useChat({
-    onItineraryDelivered: ({ isEdit } = {}) => {
+  // The gentle rating bubble appears at most once per conversation, and never on the same delivery
+  // as the signup nudge, so the user is never stacked with two prompts.
+  const ratingNudgedRef = useRef(false)
+  const { messages, isStreaming, itineraryGeo, planningStage, variants, activeVariant, selectVariant, keepVariant, sessionId, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate } = useChat({
+    onItineraryDelivered: ({ isEdit, fromCompare, chosen } = {}) => {
       // A delivered plan is the thing to look at, so surface the canvas on mobile and follow it.
       setMobileView('canvas')
       setViewedItineraryIndex(null)
+      const willNudgeSignup = !auth.user && !isEdit && !signupNudgedRef.current
       if (auth.user) {
         setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
         setTimeout(() => setToast(null), 4000)
-      } else if (!isEdit && !signupNudgedRef.current) {
+      } else if (willNudgeSignup) {
         // Nudge signup once per conversation, not on every fresh plan (regenerate) or follow-up edit.
         signupNudgedRef.current = true
         setSignupPrompt(true)
+      }
+      // Offer a one-time, dismissible rating bubble for a fresh plan, but not alongside the signup
+      // nudge. The compare case asks why this option, tagged with which variant was kept.
+      if (!isEdit && !willNudgeSignup && !ratingNudgedRef.current) {
+        ratingNudgedRef.current = true
+        setFeedbackTarget(
+          fromCompare
+            ? { kind: 'compare', title: 'Why this option?', placeholder: 'What made this one the keeper? (optional)', context: { chosen } }
+            : { kind: 'plan', title: 'How was this plan?', placeholder: 'Anything you liked or would change? (optional)' },
+        )
       }
     },
   })
   const trips = useTrips(auth.user)
   const share = useShare()
+  const feedback = useFeedback()
   const [authOpen, setAuthOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [entered, setEntered] = useState(() => localStorage.getItem('atlas_entered') === '1')
@@ -71,6 +91,7 @@ export default function App() {
   useEffect(() => {
     if (messages.length === 0) {
       signupNudgedRef.current = false
+      ratingNudgedRef.current = false
       setPendingQuote(null)
     }
   }, [messages.length])
@@ -104,6 +125,29 @@ export default function App() {
 
   // A fresh plan can be requested as two variants; edits and follow-ups (once a plan exists) never are.
   const handleSend = (text) => sendMessage(text, { compare: compareMode && !split })
+
+  // App-level feedback / bug report from the header, always available.
+  const openAppFeedback = () =>
+    setFeedbackTarget({
+      kind: 'app',
+      title: 'Feedback or a problem?',
+      placeholder: "What worked, what didn't, or a bug to report (optional)",
+    })
+
+  const submitFeedback = async ({ rating, message }) => {
+    const target = feedbackTarget
+    const ok = await feedback.submit({
+      kind: target.kind,
+      rating,
+      message,
+      sessionId: target.kind === 'app' ? null : sessionId,
+      context: target.context,
+    })
+    setFeedbackTarget(null)
+    feedback.reset()
+    setToast(ok ? 'Thanks for the feedback.' : 'Could not send feedback. Please try again.')
+    setTimeout(() => setToast(null), 4000)
+  }
 
   // Sign out also resets the chat so the next person does not inherit the session.
   const handleSignOut = () => {
@@ -183,6 +227,7 @@ export default function App() {
         onSignIn={() => setAuthOpen(true)}
         onSignOut={handleSignOut}
         onToggleTrips={auth.user ? () => { setSidebarOpen((o) => !o); trips.refresh() } : null}
+        onFeedback={openAppFeedback}
       />
 
       {hasMessages && (
@@ -227,6 +272,7 @@ export default function App() {
                 onUnshare={share.unshare}
                 isShared={share.isShared}
                 onAddToChat={(text) => { setPendingQuote(text); setMobileView('chat') }}
+                onRate={() => setFeedbackTarget({ kind: 'plan', title: 'How was this plan?', placeholder: 'Anything you liked or would change? (optional)' })}
               />
             )}
           </div>
@@ -237,6 +283,16 @@ export default function App() {
 
       {/* In the split, the input lives inside the chat column; everywhere else it sits at the bottom. */}
       {!split && inputBar}
+
+      {feedbackTarget && (
+        <FeedbackBubble title={feedbackTarget.title} onClose={() => { setFeedbackTarget(null); feedback.reset() }}>
+          <FeedbackForm
+            busy={feedback.status === 'sending'}
+            placeholder={feedbackTarget.placeholder}
+            onSubmit={submitFeedback}
+          />
+        </FeedbackBubble>
+      )}
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
       {signupPrompt && !auth.user && (

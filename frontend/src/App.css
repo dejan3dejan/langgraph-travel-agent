@@ -940,6 +940,87 @@
 }
 .signup-prompt__dismiss:hover { color: var(--accent); }
 
+/* feedback bubble: a small dismissible card for rating a plan, an A/B choice, or the app */
+.feedback-bubble {
+  position: fixed;
+  bottom: 90px;
+  right: max(24px, calc(50vw - 600px));
+  z-index: 60;
+  width: 320px;
+  max-width: 92vw;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-floating);
+  animation: msg-in 0.3s var(--ease-out-expo) both;
+}
+
+.feedback-bubble__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.feedback-bubble__title { font-weight: 700; font-size: 0.92rem; }
+
+.feedback-bubble__close {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.feedback-bubble__close:hover { color: var(--accent); }
+
+.feedback-form { display: flex; flex-direction: column; gap: 12px; }
+
+.feedback-stars { display: flex; gap: 4px; }
+
+.feedback-star {
+  border: none;
+  background: none;
+  padding: 2px;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, transform 0.15s var(--ease-spring);
+}
+.feedback-star:hover { transform: scale(1.1); }
+.feedback-star.is-on { color: var(--accent); }
+
+.feedback-note {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  box-shadow: var(--shadow-recessed);
+}
+.feedback-note:focus { outline: none; box-shadow: var(--shadow-pressed); }
+
+.feedback-send {
+  align-self: flex-end;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: filter 0.15s, box-shadow 0.15s, transform 0.15s var(--ease-spring);
+}
+.feedback-send:hover:not(:disabled) { filter: brightness(1.08); }
+.feedback-send:disabled { opacity: 0.5; cursor: default; }
+
 /* saved-trips sidebar */
 .sidebar {
   position: fixed;
