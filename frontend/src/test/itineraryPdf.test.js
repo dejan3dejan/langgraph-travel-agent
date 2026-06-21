@@ -13,16 +13,16 @@ test('embeds the trip title, the rendered itinerary body, and the map', () => {
     title: 'Trip to Rome',
     bodyHtml: '<h2>Day 1</h2><p>Walk the forum</p>',
     geo: GEO,
-    mapSvg: '<svg id="route-map"></svg>',
+    mapHtml: '<img id="route-map" src="data:image/png;base64,AAAA" />',
   })
   expect(html).toContain('<title>Trip to Rome</title>')
   expect(html).toContain('Trip to Rome')
   expect(html).toContain('Walk the forum')
-  expect(html).toContain('<svg id="route-map">')
+  expect(html).toContain('<img id="route-map"')
 })
 
 test('renders a day card per day with its shared palette color', () => {
-  const html = buildExportHtml({ title: 'Trip to Rome', bodyHtml: '', geo: GEO, mapSvg: '' })
+  const html = buildExportHtml({ title: 'Trip to Rome', bodyHtml: '', geo: GEO, mapHtml: '' })
   expect((html.match(/class="export-card"/g) || []).length).toBe(2)
   expect(html).toContain('Ancient core')
   expect(html).toContain('Vatican')
@@ -31,8 +31,13 @@ test('renders a day card per day with its shared palette color', () => {
   expect(html).toContain('#db2777')
 })
 
+test('links each day-card stop to google maps directions', () => {
+  const html = buildExportHtml({ title: 'Trip to Rome', bodyHtml: '', geo: GEO, mapHtml: '' })
+  expect(html).toContain('href="https://www.google.com/maps/dir/?api=1&amp;destination=Colosseum"')
+})
+
 test('still produces a document when there is no geo', () => {
-  const html = buildExportHtml({ title: 'Trip', bodyHtml: '<p>hi</p>', geo: null, mapSvg: '' })
+  const html = buildExportHtml({ title: 'Trip', bodyHtml: '<p>hi</p>', geo: null, mapHtml: '' })
   expect(html).toContain('<title>Trip</title>')
   expect(html).toContain('hi')
   expect(html).not.toContain('class="export-card"')

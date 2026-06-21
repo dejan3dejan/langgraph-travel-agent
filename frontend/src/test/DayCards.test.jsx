@@ -34,6 +34,13 @@ test('renders a card per day with its title and ordered stops', () => {
   expect(screen.getByText('Food')).toBeInTheDocument()
 })
 
+test('links each stop to google maps directions', () => {
+  render(<DayCards geo={TWO_DAYS} />)
+  const link = screen.getByRole('link', { name: 'Colosseum' })
+  expect(link.getAttribute('href')).toContain('google.com/maps/dir')
+  expect(link).toHaveAttribute('target', '_blank')
+})
+
 test('falls back to the legacy label when the day has no title', () => {
   const geo = { hotel: null, days: [{ day: 3, label: 'Across town', places: [{ name: 'Park', kind: 'place' }] }] }
   render(<DayCards geo={geo} />)

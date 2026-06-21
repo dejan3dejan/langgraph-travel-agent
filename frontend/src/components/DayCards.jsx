@@ -1,4 +1,5 @@
 import { dayColor } from '../dayColors'
+import { directionsUrl } from '../maps'
 import './DayCards.css'
 
 // Short tag per stop type so a day reads at a glance.
@@ -18,7 +19,15 @@ export default function DayCards({ geo }) {
           <ol className="day-card__stops">
             {d.places.map((p, i) => (
               <li key={i} className="day-card__stop">
-                <span className="day-card__stop-name">{p.name}</span>
+                <a
+                  className="day-card__stop-name"
+                  href={directionsUrl(p)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open directions in Google Maps"
+                >
+                  {p.name}
+                </a>
                 <span className="day-card__stop-kind">{KIND_LABEL[p.kind] || 'Place'}</span>
               </li>
             ))}

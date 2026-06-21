@@ -18,8 +18,8 @@ router = APIRouter()
 
 class ExportRequest(BaseModel):
     # The fully assembled export document. Capped so a single request can't hand the renderer an
-    # unbounded payload; the real document is a few tens of KB.
-    html: str = Field(..., min_length=1, max_length=1_000_000)
+    # unbounded payload; the cap leaves headroom for the inlined map image (a base64 JPEG).
+    html: str = Field(..., min_length=1, max_length=3_000_000)
     filename: str | None = Field(default=None, max_length=200)
 
 
