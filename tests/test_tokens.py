@@ -2,7 +2,15 @@
 
 from datetime import UTC, datetime, timedelta
 
-from core.tokens import generate_token, hash_token, is_token_expired, is_token_usable, token_expires_at, verify_token
+from core.tokens import (
+    generate_token,
+    hash_token,
+    is_token_expired,
+    is_token_prunable,
+    is_token_usable,
+    token_expires_at,
+    verify_token,
+)
 
 # generation
 
@@ -112,3 +120,21 @@ def test_is_token_usable_is_false_when_already_used():
     expires = now + timedelta(minutes=10)
     used = now - timedelta(minutes=1)
     assert is_token_usable(stored, raw, expires, used_at=used, now=now) is False
+
+
+# prunable (cleanup job)
+
+
+def test_is_token_prunable_when_used_even_if_unexpired():
+    now = datetime(2026, 6, 22, tzinfo=UTC)
+    assert is_token_prunable(now + timedelta(minutes=10), used_at=now, now=now) is True
+
+
+def test_is_token_prunable_when_expired_even_if_unused():
+    now = datetime(2026, 6, 22, tzinfo=UTC)
+    assert is_token_prunable(now - timedelta(seconds=1), used_at=None, now=now) is True
+
+
+def test_is_token_not_prunable_when_live_and_unused():
+    now = datetime(2026, 6, 22, tzinfo=UTC)
+    assert is_token_prunable(now + timedelta(minutes=10), used_at=None, now=now) is False

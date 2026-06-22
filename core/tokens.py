@@ -57,3 +57,11 @@ def is_token_usable(
     if is_token_expired(expires_at, now):
         return False
     return verify_token(stored_hash, provided_raw)
+
+
+def is_token_prunable(expires_at: datetime | None, used_at: datetime | None, now: datetime) -> bool:
+    """A token row is safe to delete once it has been consumed or has expired. Used and expired
+    tokens are already refused by is_token_usable; pruning just keeps the table from growing."""
+    if used_at is not None:
+        return True
+    return is_token_expired(expires_at, now)

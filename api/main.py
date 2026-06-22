@@ -270,6 +270,34 @@ async def clear_stale_cache(max_age_days: int = 60, _key: str | None = Depends(v
         db.close()
 
 
+@app.post("/api/users/prune-tokens")
+async def prune_auth_tokens(_key: str | None = Depends(verify_api_key)):
+    """Delete used or expired auth tokens. Requires API key. Safe to run on a schedule: these rows
+    are already refused once used or expired, so pruning only reclaims space."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import or_
+
+    from core.database import AuthToken
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(UTC)
+        deleted = (
+            db.query(AuthToken)
+            .filter(or_(AuthToken.used_at.isnot(None), AuthToken.expires_at < now))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        logger.info(f"Pruned {deleted} used/expired auth tokens")
+        return {"pruned": deleted}
+    except Exception as e:
+        logger.error(f"Prune tokens error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to prune auth tokens.") from None
+    finally:
+        db.close()
+
+
 @app.get("/api/cache/test-similarity")
 async def test_similarity(query1: str, query2: str):
     """Compare cosine similarity between two queries. Useful for debugging cache behavior."""
