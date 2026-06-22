@@ -1150,13 +1150,18 @@
 .consent-banner {
   position: fixed;
   bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Center via auto margins, not translateX: the msg-in animation ends on a transform and would
+     otherwise override the horizontal shift, pushing the banner off-center and off-screen. */
+  left: 0;
+  right: 0;
+  margin: 0 auto;
   z-index: 55;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
-  max-width: 92vw;
+  justify-content: center;
+  gap: 10px 14px;
+  width: min(440px, calc(100vw - 24px));
   padding: 12px 18px;
   border-radius: var(--r-md);
   background: var(--bg);
@@ -1165,6 +1170,8 @@
   box-shadow: var(--shadow-floating);
   animation: msg-in 0.3s var(--ease-out-expo) both;
 }
+
+.consent-banner__text { flex: 1 1 200px; }
 
 .consent-banner__actions { display: flex; align-items: center; gap: 8px; }
 
