@@ -974,6 +974,98 @@
 
 .auth-toggle:hover { color: var(--accent); }
 
+.auth-note {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.auth-link-inline {
+  align-self: flex-end;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.auth-link-inline:hover { color: var(--accent); }
+
+.auth-submit--link {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+}
+
+/* The reset and verify pages render full-screen rather than over the app, so the backdrop is the
+   page background instead of a dimming layer. */
+.modal-backdrop--page { background: var(--bg); backdrop-filter: none; }
+
+.auth-user--button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.auth-user--button:hover { color: var(--accent); }
+
+.settings-card {
+  max-width: 400px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.settings-section {
+  padding-top: 16px;
+  border-top: 1px solid var(--shadow-dark);
+}
+
+.settings-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.settings-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  font-size: 0.82rem;
+  color: var(--text);
+  box-shadow: var(--shadow-recessed);
+}
+
+.settings-msg { font-size: 0.8rem; text-align: center; }
+.settings-msg--ok { color: var(--accent); }
+.settings-msg--err { color: var(--danger); }
+
+.settings-danger {
+  border: none;
+  border-radius: var(--r-md);
+  padding: 13px;
+  background: var(--bg);
+  color: var(--danger);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.15s var(--ease-spring), box-shadow 0.15s;
+}
+
+.settings-danger:hover:not(:disabled) { box-shadow: var(--shadow-floating); }
+.settings-danger:active:not(:disabled) { transform: translateY(2px); box-shadow: var(--shadow-pressed); }
+.settings-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* In the split the canvas owns the right side, so float confirmations over the chat column
    instead of dead-center where they would cover the map and legend. */
 .app--split .toast,

@@ -60,6 +60,58 @@ export function useAuth() {
     setUser(null)
   }, [])
 
+  // Authed request against /api/users that returns a {ok, error, data} result instead of throwing,
+  // so the settings screens can show inline errors. A 401 means the session lapsed: signal it the
+  // same way the rest of the app does.
+  const authed = useCallback(async (path, { method = 'POST', body } = {}) => {
+    const token = localStorage.getItem(TOKEN_KEY)
+    try {
+      const res = await fetch(apiUrl(`/api/users/${path}`), {
+        method,
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      })
+      if (res.status === 401) window.dispatchEvent(new Event('atlas-unauthorized'))
+      if (res.status === 204) return { ok: true }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return { ok: false, error: data.detail || 'Something went wrong' }
+      return { ok: true, data }
+    } catch {
+      return { ok: false, error: 'Network error. Please try again.' }
+    }
+  }, [])
+
+  const updateProfile = useCallback(
+    async (fields) => {
+      const res = await authed('me', { method: 'PATCH', body: fields })
+      if (res.ok && res.data) {
+        localStorage.setItem(USER_KEY, JSON.stringify(res.data))
+        setUser(res.data)
+      }
+      return res
+    },
+    [authed],
+  )
+
+  const changePassword = useCallback(
+    (currentPassword, newPassword) =>
+      authed('me/password', { body: { current_password: currentPassword, new_password: newPassword } }),
+    [authed],
+  )
+
+  const deleteAccount = useCallback(
+    async (password) => {
+      const res = await authed('me', { method: 'DELETE', body: { password } })
+      if (res.ok) logout()
+      return res
+    },
+    [authed, logout],
+  )
+
+  const forgotPassword = useCallback((email) => authed('forgot-password', { body: { email } }), [authed])
+
+  const resendVerification = useCallback(() => authed('resend-verification', { body: {} }), [authed])
+
   // Validate a stored token on load: a stale/expired token would otherwise leave the header
   // showing a signed-in user while requests silently fall back to anonymous.
   useEffect(() => {
@@ -93,5 +145,17 @@ export function useAuth() {
     return () => window.removeEventListener('atlas-unauthorized', logout)
   }, [logout])
 
-  return { user, error, busy, login, register, logout }
+  return {
+    user,
+    error,
+    busy,
+    login,
+    register,
+    logout,
+    updateProfile,
+    changePassword,
+    deleteAccount,
+    forgotPassword,
+    resendVerification,
+  }
 }

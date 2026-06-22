@@ -12,6 +12,7 @@ import Intake from './components/Intake'
 import Message from './components/Message'
 import InputBar from './components/InputBar'
 import AuthModal from './components/AuthModal'
+import AccountSettings from './components/AccountSettings'
 import Sidebar from './components/Sidebar'
 import Landing from './components/Landing'
 import Toast from './components/Toast'
@@ -73,6 +74,7 @@ export default function App() {
   const feedback = useFeedback()
   const profile = useProfile(auth.user)
   const [authOpen, setAuthOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [entered, setEntered] = useState(() => localStorage.getItem('atlas_entered') === '1')
   const chatEndRef = useRef(null)
@@ -233,6 +235,7 @@ export default function App() {
         onSignIn={() => setAuthOpen(true)}
         onSignOut={handleSignOut}
         onToggleTrips={auth.user ? () => { setSidebarOpen((o) => !o); trips.refresh() } : null}
+        onSettings={auth.user ? () => setSettingsOpen(true) : null}
         onFeedback={openAppFeedback}
       />
 
@@ -312,6 +315,7 @@ export default function App() {
         />
       )}
       {authOpen && <AuthModal auth={auth} onClose={() => setAuthOpen(false)} />}
+      {settingsOpen && auth.user && <AccountSettings auth={auth} onClose={() => setSettingsOpen(false)} />}
       {sidebarOpen && (
         <Sidebar
           trips={trips.trips}

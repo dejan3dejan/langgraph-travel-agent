@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import CompassMark from './CompassMark'
 
-export default function Header({ user, onSignIn, onSignOut, onToggleTrips, onFeedback }) {
+export default function Header({ user, onSignIn, onSignOut, onToggleTrips, onFeedback, onSettings }) {
   const [theme, setTheme] = useState(
     () => document.documentElement.getAttribute('data-theme') || 'light',
   )
@@ -21,7 +21,13 @@ export default function Header({ user, onSignIn, onSignOut, onToggleTrips, onFee
         {user ? (
           <>
             {onToggleTrips && <button className="auth-link" onClick={onToggleTrips}>Trips</button>}
-            <span className="auth-user">{user.username}</span>
+            {onSettings ? (
+              <button className="auth-user auth-user--button" onClick={onSettings} title="Account settings">
+                {user.username}
+              </button>
+            ) : (
+              <span className="auth-user">{user.username}</span>
+            )}
             <button className="auth-link" onClick={onSignOut}>Sign out</button>
           </>
         ) : (

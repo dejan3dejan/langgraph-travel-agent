@@ -82,3 +82,94 @@ test('B4.2: an unauthorized event logs the user out', async () => {
 
   await waitFor(() => expect(result.current.user).toBeNull())
 })
+
+test('updateProfile persists the returned user on success', async () => {
+  localStorage.setItem('atlas_token', 'good')
+  localStorage.setItem('atlas_user', JSON.stringify({ id: '1', username: 'bob', email: 'b@x.com' }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: '1', username: 'bobby', email: 'b@x.com', email_verified: true }),
+    })),
+  )
+
+  const { result } = renderHook(() => useAuth())
+  let res
+  await act(async () => {
+    res = await result.current.updateProfile({ username: 'bobby' })
+  })
+
+  expect(res.ok).toBe(true)
+  expect(result.current.user.username).toBe('bobby')
+  expect(JSON.parse(localStorage.getItem('atlas_user')).username).toBe('bobby')
+})
+
+test('updateProfile surfaces the server error and keeps the old user', async () => {
+  // No token: skip the on-load /me validation so the shared fetch mock only sees the PATCH.
+  localStorage.setItem('atlas_user', JSON.stringify({ id: '1', username: 'bob' }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ detail: 'Username already taken' }) })),
+  )
+
+  const { result } = renderHook(() => useAuth())
+  let res
+  await act(async () => {
+    res = await result.current.updateProfile({ username: 'taken' })
+  })
+
+  expect(res.ok).toBe(false)
+  expect(res.error).toBe('Username already taken')
+  expect(result.current.user.username).toBe('bob')
+})
+
+test('changePassword returns ok on 204 and an error on 403', async () => {
+  localStorage.setItem('atlas_token', 'good')
+  localStorage.setItem('atlas_user', JSON.stringify({ username: 'bob' }))
+
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 204 })))
+  const { result } = renderHook(() => useAuth())
+  let res
+  await act(async () => {
+    res = await result.current.changePassword('old', 'newpass')
+  })
+  expect(res.ok).toBe(true)
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: false, status: 403, json: async () => ({ detail: 'Current password is incorrect' }) })),
+  )
+  await act(async () => {
+    res = await result.current.changePassword('wrong', 'newpass')
+  })
+  expect(res.ok).toBe(false)
+  expect(res.error).toBe('Current password is incorrect')
+})
+
+test('deleteAccount logs the user out on success', async () => {
+  localStorage.setItem('atlas_token', 'good')
+  localStorage.setItem('atlas_user', JSON.stringify({ username: 'bob' }))
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 204 })))
+
+  const { result } = renderHook(() => useAuth())
+  let res
+  await act(async () => {
+    res = await result.current.deleteAccount('pw')
+  })
+
+  expect(res.ok).toBe(true)
+  expect(result.current.user).toBeNull()
+  expect(localStorage.getItem('atlas_token')).toBeNull()
+})
+
+test('forgotPassword returns ok regardless of whether the email exists', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 202, json: async () => ({ status: 'sent' }) })))
+  const { result } = renderHook(() => useAuth())
+  let res
+  await act(async () => {
+    res = await result.current.forgotPassword('nobody@x.com')
+  })
+  expect(res.ok).toBe(true)
+})
