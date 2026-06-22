@@ -5,8 +5,8 @@ hands them to send_email; whether a provider is configured, and which one, is de
 no provider key set the send degrades to a logged no-op so signup and reset still work in dev.
 
 Tokens are a capability: the raw token rides inside the link and must never be logged. Nothing here
-logs the link, the message body, or the provider response body. EMAIL_DEV_ECHO is the one, opt-in
-exception for local testing.
+logs the link, the message body, the provider response body, or the recipient address (personal
+data). EMAIL_DEV_ECHO is the one, opt-in exception for local testing.
 """
 
 import os
@@ -83,9 +83,9 @@ async def send_email(to: str, subject: str, html: str, text: str | None = None) 
     if cfg["provider"] == "resend" and cfg["resend_api_key"]:
         return await _send_resend(cfg, to, subject, html, text)
 
-    # No usable provider: degrade to a no-op. Log the recipient and subject only, never the body or
-    # any link (the link carries the token).
-    logger.warning(f"Email provider not configured; skipping send to {to} (subject: {subject!r})")
+    # No usable provider: degrade to a no-op. Log the subject only, never the recipient (personal
+    # data), the body, or any link (the link carries the token).
+    logger.warning(f"Email provider not configured; skipping send (subject: {subject!r})")
     if cfg["dev_echo"]:
         # Opt-in local affordance: surfaces the link so a developer can complete the flow without a
         # provider. Off by default so tokens never reach logs in any shared environment.
@@ -106,13 +106,13 @@ async def _send_resend(cfg: dict, to: str, subject: str, html: str, text: str | 
             )
     except httpx.HTTPError as e:
         # Network/timeout failure. Log the class only; the request body holds the link.
-        logger.error(f"Email send to {to} failed: {type(e).__name__}")
+        logger.error(f"Email send failed: {type(e).__name__}")
         return False
 
     if resp.status_code >= 400:
         # Status only. The response body can echo the rejected payload, which includes the link.
-        logger.error(f"Email send to {to} rejected by provider (status {resp.status_code})")
+        logger.error(f"Email send rejected by provider (status {resp.status_code})")
         return False
 
-    logger.info(f"Verification/reset email sent to {to}")
+    logger.info("Verification/reset email sent")
     return True

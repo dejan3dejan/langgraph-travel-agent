@@ -83,7 +83,9 @@ async def critic_node(state: AgentState) -> dict:
         # iteration cap stops the loop if it cannot be satisfied.
         critique["approved"] = False
         next_node = "compiler"
-        logger.info(f"Hard-constraint violations, recompiling: {hard_violations}")
+        # Log the count, not the contents: hard constraints carry allergies and accessibility needs
+        # (special-category personal data) that must not land in logs.
+        logger.info(f"Hard-constraint violations ({len(hard_violations)}), recompiling")
     else:
         critique["approved"] = True
         next_node = "approved"
