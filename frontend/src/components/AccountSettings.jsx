@@ -18,6 +18,7 @@ export default function AccountSettings({ auth, onClose }) {
 
   const [busy, setBusy] = useState(false)
   const [resendMsg, setResendMsg] = useState(null)
+  const [exportMsg, setExportMsg] = useState(null)
 
   const saveProfile = async (e) => {
     e.preventDefault()
@@ -65,6 +66,25 @@ export default function AccountSettings({ auth, onClose }) {
     setResendMsg(null)
     const res = await auth.resendVerification()
     setResendMsg(res.ok ? 'Verification email sent.' : res.error)
+  }
+
+  const exportData = async () => {
+    setBusy(true)
+    setExportMsg(null)
+    const res = await auth.exportData()
+    setBusy(false)
+    if (!res.ok) {
+      setExportMsg(res.error)
+      return
+    }
+    // Hand the user a downloadable copy of everything we hold on them.
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'atlas-data.json'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -129,6 +149,15 @@ export default function AccountSettings({ auth, onClose }) {
           )}
           <button className="auth-submit" type="submit" disabled={busy}>Change password</button>
         </form>
+
+        <div className="auth-form settings-section">
+          <span className="settings-label">Your data</span>
+          <p className="auth-note">Download a copy of your profile, preferences, trips, and chats.</p>
+          {exportMsg && <p className="settings-msg settings-msg--err">{exportMsg}</p>}
+          <button type="button" className="auth-submit" onClick={exportData} disabled={busy}>
+            Download my data
+          </button>
+        </div>
 
         <div className="auth-form settings-section">
           <span className="settings-label">Delete account</span>

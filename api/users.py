@@ -1,6 +1,7 @@
 """User authentication, preferences, and trip management endpoints."""
 
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 from core import email as email_boundary
 from core.database import AuthToken, ChatSession, Trip, User, UserPreference, get_db
 from core.logger import get_logger
+from core.ratelimit import within_limit
 from core.schemas import IntakePrefs, TravelConstraints, intake_to_preference_columns
 from core.tokens import generate_token, hash_token, is_token_usable, token_expires_at
 
@@ -23,6 +25,22 @@ PURPOSE_RESET = "password_reset"
 
 EMAIL_VERIFY_TTL = timedelta(hours=int(os.getenv("EMAIL_VERIFY_TTL_HOURS", "24")))
 PASSWORD_RESET_TTL = timedelta(minutes=int(os.getenv("PASSWORD_RESET_TTL_MINUTES", "30")))
+
+# Per-email cap on the endpoints that send mail, so neither can be used to flood an inbox. This is
+# in-process (resets on restart, not shared across workers); the global per-IP limiter in api/main
+# is the other layer. Keyed by purpose+identifier.
+EMAIL_SEND_MAX = int(os.getenv("EMAIL_SEND_MAX", "3"))
+EMAIL_SEND_WINDOW = int(os.getenv("EMAIL_SEND_WINDOW", "3600"))
+_email_send_hits: dict[str, list[float]] = {}
+
+
+def _allow_email_send(key: str) -> bool:
+    """Sliding-window gate for an email-sending action, keyed by purpose+email. Returns False once
+    the cap is hit within the window."""
+    allowed, _email_send_hits[key] = within_limit(
+        _email_send_hits.get(key, []), time.time(), EMAIL_SEND_WINDOW, EMAIL_SEND_MAX
+    )
+    return allowed
 
 
 def _issue_token(db: Session, user_id: str, purpose: str, ttl: timedelta) -> str:
@@ -373,6 +391,9 @@ async def resend_verification(
     if user.email_verified:
         return {"status": "already_verified"}
 
+    if not _allow_email_send(f"{PURPOSE_VERIFY}:{user.id}"):
+        raise HTTPException(status_code=429, detail="Too many verification emails. Please wait a while and try again.")
+
     verify_raw = _issue_token(db, user.id, PURPOSE_VERIFY, EMAIL_VERIFY_TTL)
     db.commit()
     background_tasks.add_task(_send_verification_email, user.email, verify_raw)
@@ -383,8 +404,11 @@ async def resend_verification(
 async def forgot_password(req: ForgotPasswordRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Begin a password reset. Always returns the same response so the endpoint cannot be used to
     discover which emails have accounts."""
-    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
-    if user and user.is_active:
+    # Gate the send by email so a flood of requests cannot bomb an inbox. Over-limit requests still
+    # return the same 202 with no send, keeping the no-enumeration guarantee intact.
+    email = req.email.lower().strip()
+    user = db.query(User).filter(User.email == email).first()
+    if user and user.is_active and _allow_email_send(f"{PURPOSE_RESET}:{email}"):
         reset_raw = _issue_token(db, user.id, PURPOSE_RESET, PASSWORD_RESET_TTL)
         db.commit()
         background_tasks.add_task(_send_reset_email, user.email, reset_raw)
@@ -411,6 +435,65 @@ async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db
     db.commit()
     logger.info(f"Password reset for {user.username}")
     return {"status": "reset"}
+
+
+@router.get("/me/export")
+async def export_my_data(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Return everything stored about the signed-in user as one JSON payload. Read-only; the password
+    hash and internal token rows are deliberately excluded. Rounds out the privacy story alongside
+    account deletion."""
+    prefs = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
+    trips = db.query(Trip).filter(Trip.user_id == user.id).order_by(Trip.created_at.desc()).all()
+    sessions = (
+        db.query(ChatSession).filter(ChatSession.user_id == user.id).order_by(ChatSession.updated_at.desc()).all()
+    )
+
+    return {
+        "account": {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "email_verified": user.email_verified,
+            "created_at": user.created_at.isoformat(),
+        },
+        "preferences": (
+            None
+            if not prefs
+            else {
+                "default_budget": prefs.default_budget,
+                "default_interests": prefs.default_interests,
+                "num_travelers": prefs.num_travelers,
+                "age_range": prefs.age_range,
+                "trip_type": prefs.trip_type,
+                "start_location": prefs.start_location,
+                "constraints": prefs.travel_constraints,
+            }
+        ),
+        "trips": [
+            {
+                "id": t.id,
+                "destination": t.destination,
+                "duration": t.duration,
+                "budget": t.budget,
+                "interests": t.interests,
+                "itinerary_text": t.itinerary_text,
+                "geo": t.geo,
+                "session_id": t.session_id,
+                "created_at": t.created_at.isoformat(),
+            }
+            for t in trips
+        ],
+        "sessions": [
+            {
+                "session_id": s.session_id,
+                "title": s.title or "New Chat",
+                "created_at": s.created_at.isoformat(),
+                "updated_at": s.updated_at.isoformat(),
+                "history": s.data.get("history", []) if s.data else [],
+            }
+            for s in sessions
+        ],
+    }
 
 
 # Preferences endpoints

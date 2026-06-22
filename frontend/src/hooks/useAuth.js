@@ -112,6 +112,8 @@ export function useAuth() {
 
   const resendVerification = useCallback(() => authed('resend-verification', { body: {} }), [authed])
 
+  const exportData = useCallback(() => authed('me/export', { method: 'GET' }), [authed])
+
   // Validate a stored token on load: a stale/expired token would otherwise leave the header
   // showing a signed-in user while requests silently fall back to anonymous.
   useEffect(() => {
@@ -157,5 +159,6 @@ export function useAuth() {
     deleteAccount,
     forgotPassword,
     resendVerification,
+    exportData,
   }
 }

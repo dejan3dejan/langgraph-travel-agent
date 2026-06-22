@@ -8,6 +8,7 @@ function makeAuth(overrides = {}) {
     changePassword: vi.fn(async () => ({ ok: true })),
     deleteAccount: vi.fn(async () => ({ ok: true })),
     resendVerification: vi.fn(async () => ({ ok: true })),
+    exportData: vi.fn(async () => ({ ok: true, data: { account: { id: '1' }, trips: [] } })),
     ...overrides,
   }
 }
@@ -41,6 +42,25 @@ test('shows a verification banner and resends when the email is unverified', asy
   expect(screen.getByText(/not verified/i)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /resend link/i }))
   await waitFor(() => expect(auth.resendVerification).toHaveBeenCalled())
+})
+
+test('download my data fetches the export and builds a download', async () => {
+  const auth = makeAuth()
+  const createObjectURL = vi.fn(() => 'blob:fake')
+  const revokeObjectURL = vi.fn()
+  vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+  // jsdom anchors don't navigate; stub click so it doesn't throw.
+  const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+  render(<AccountSettings auth={auth} onClose={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: /download my data/i }))
+
+  await waitFor(() => expect(auth.exportData).toHaveBeenCalled())
+  expect(createObjectURL).toHaveBeenCalled()
+  expect(clickSpy).toHaveBeenCalled()
+
+  clickSpy.mockRestore()
+  vi.unstubAllGlobals()
 })
 
 test('delete account asks for confirmation before calling the hook', async () => {
