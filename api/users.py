@@ -255,7 +255,7 @@ async def register(req: RegisterRequest, background_tasks: BackgroundTasks, db: 
     background_tasks.add_task(_send_verification_email, user.email, verify_raw)
 
     token = create_access_token(user.id)
-    logger.info(f"New user registered: {user.username}")
+    logger.info(f"New user registered: {user.id}")
 
     return TokenResponse(
         access_token=token,
@@ -283,7 +283,7 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
     db.commit()
 
     token = create_access_token(user.id)
-    logger.info(f"User logged in: {user.username}")
+    logger.info(f"User logged in: {user.id}")
 
     return TokenResponse(
         access_token=token,
@@ -338,7 +338,7 @@ async def update_me(
 
     if verify_raw:
         background_tasks.add_task(_send_verification_email, user.email, verify_raw)
-    logger.info(f"Profile updated for {user.username}")
+    logger.info(f"Profile updated for {user.id}")
 
     return UserResponse(
         id=user.id,
@@ -359,7 +359,7 @@ async def change_password(
 
     user.hashed_password = hash_password(req.new_password)
     db.commit()
-    logger.info(f"Password changed for {user.username}")
+    logger.info(f"Password changed for {user.id}")
 
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
@@ -371,14 +371,14 @@ async def delete_me(req: AccountDeleteRequest, user: User = Depends(require_user
 
     # Explicit cascade in one transaction: the trips/sessions/preferences FKs carry no ondelete, so
     # remove the user's rows directly rather than relying on the database.
-    username = user.username
+    user_id = user.id
     db.query(Trip).filter(Trip.user_id == user.id).delete(synchronize_session=False)
     db.query(ChatSession).filter(ChatSession.user_id == user.id).delete(synchronize_session=False)
     db.query(UserPreference).filter(UserPreference.user_id == user.id).delete(synchronize_session=False)
     db.query(AuthToken).filter(AuthToken.user_id == user.id).delete(synchronize_session=False)
     db.delete(user)
     db.commit()
-    logger.info(f"Account deleted: {username}")
+    logger.info(f"Account deleted: {user_id}")
 
 
 @router.post("/verify-email", status_code=status.HTTP_200_OK)
@@ -445,7 +445,7 @@ async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db
         AuthToken.used_at.is_(None),
     ).update({"used_at": datetime.now(UTC)}, synchronize_session=False)
     db.commit()
-    logger.info(f"Password reset for {user.username}")
+    logger.info(f"Password reset for {user.id}")
     return {"status": "reset"}
 
 
@@ -555,7 +555,7 @@ async def update_preferences(
 
     db.commit()
     db.refresh(prefs)
-    logger.info(f"Preferences updated for {user.username}: {list(update_data.keys())}")
+    logger.info(f"Preferences updated for {user.id}: {list(update_data.keys())}")
 
     return PreferencesResponse(
         default_budget=prefs.default_budget,
@@ -619,7 +619,7 @@ async def delete_trip(trip_id: str, user: User = Depends(require_user), db: Sess
 
     db.delete(trip)
     db.commit()
-    logger.info(f"Trip {trip_id} deleted by {user.username}")
+    logger.info(f"Trip {trip_id} deleted by {user.id}")
 
 
 # Chat session management
@@ -669,4 +669,4 @@ async def delete_session(session_id: str, user: User = Depends(require_user), db
     db.query(Trip).filter(Trip.session_id == session_id).delete()
     db.delete(session)
     db.commit()
-    logger.info(f"Session {session_id} deleted by {user.username}")
+    logger.info(f"Session {session_id} deleted by {user.id}")
