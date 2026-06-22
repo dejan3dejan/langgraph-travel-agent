@@ -51,11 +51,13 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    email_verified = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     preferences = relationship("UserPreference", back_populates="user", uselist=False)
     sessions = relationship("ChatSession", back_populates="user")
     trips = relationship("Trip", back_populates="user")
+    auth_tokens = relationship("AuthToken", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserPreference(Base):
@@ -120,6 +122,22 @@ class SharedItinerary(Base):
     revoke_token = Column(String, nullable=True)  # owner secret; required to delete the snapshot
     expires_at = Column(DateTime, nullable=True)  # past this the public GET 404s; null never expires
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class AuthToken(Base):
+    __tablename__ = "auth_tokens"
+
+    # Single-use, expiring tokens for email verification and password reset. Only the SHA-256 hash
+    # of the raw token is stored (see core/tokens.py); the raw value lives only in the email link.
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    purpose = Column(String, nullable=False)  # "email_verify" | "password_reset"
+    token_hash = Column(String, unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)  # set when consumed; enforces single use
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    user = relationship("User", back_populates="auth_tokens")
 
 
 class Feedback(Base):
