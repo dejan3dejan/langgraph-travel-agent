@@ -1,5 +1,7 @@
 """FastAPI server with semantic cache monitoring and observability."""
 
+import asyncio
+import contextlib
 import os
 import time
 import uuid
@@ -39,9 +41,38 @@ RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "30"))
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 
 
+AUTH_TOKEN_PRUNE_INTERVAL_HOURS = int(os.getenv("AUTH_TOKEN_PRUNE_INTERVAL_HOURS", "6"))
+
+
+def _prune_tokens_once() -> int:
+    """One synchronous prune sweep in its own session. Run off the event loop via a thread."""
+    from api.users import prune_expired_tokens
+
+    db = SessionLocal()
+    try:
+        removed = prune_expired_tokens(db)
+        db.commit()
+        return removed
+    finally:
+        db.close()
+
+
+async def _prune_tokens_periodically():
+    """Background sweep that clears used/expired auth tokens on an interval. The DB call is blocking,
+    so it runs in a worker thread to avoid stalling the event loop. Failures are logged, not fatal."""
+    while True:
+        await asyncio.sleep(AUTH_TOKEN_PRUNE_INTERVAL_HOURS * 3600)
+        try:
+            removed = await asyncio.to_thread(_prune_tokens_once)
+            if removed:
+                logger.info(f"Auth-token sweep removed {removed} used/expired tokens")
+        except Exception as e:
+            logger.warning(f"Auth-token sweep failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database on startup."""
+    """Initialize database on startup and run the periodic auth-token sweep."""
     logger.info("Starting Travel Companion API...")
 
     try:
@@ -60,8 +91,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not load cache stats: {e}")
 
+    prune_task = asyncio.create_task(_prune_tokens_periodically())
+
     yield
 
+    prune_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await prune_task
     logger.info("Shutting down...")
 
 
@@ -272,22 +308,13 @@ async def clear_stale_cache(max_age_days: int = 60, _key: str | None = Depends(v
 
 @app.post("/api/users/prune-tokens")
 async def prune_auth_tokens(_key: str | None = Depends(verify_api_key)):
-    """Delete used or expired auth tokens. Requires API key. Safe to run on a schedule: these rows
-    are already refused once used or expired, so pruning only reclaims space."""
-    from datetime import UTC, datetime
-
-    from sqlalchemy import or_
-
-    from core.database import AuthToken
+    """Delete used or expired auth tokens. Requires API key. The same sweep also runs periodically
+    in the background (see lifespan); this endpoint is for an on-demand run."""
+    from api.users import prune_expired_tokens
 
     db = SessionLocal()
     try:
-        now = datetime.now(UTC)
-        deleted = (
-            db.query(AuthToken)
-            .filter(or_(AuthToken.used_at.isnot(None), AuthToken.expires_at < now))
-            .delete(synchronize_session=False)
-        )
+        deleted = prune_expired_tokens(db)
         db.commit()
         logger.info(f"Pruned {deleted} used/expired auth tokens")
         return {"pruned": deleted}

@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from core import email as email_boundary
@@ -41,6 +42,17 @@ def _allow_email_send(key: str) -> bool:
         _email_send_hits.get(key, []), time.time(), EMAIL_SEND_WINDOW, EMAIL_SEND_MAX
     )
     return allowed
+
+
+def prune_expired_tokens(db: Session, now: datetime | None = None) -> int:
+    """Delete used or expired auth-token rows and return the count removed. Shared by the admin
+    endpoint and the periodic sweep. Caller commits."""
+    now = now or datetime.now(UTC)
+    return (
+        db.query(AuthToken)
+        .filter(or_(AuthToken.used_at.isnot(None), AuthToken.expires_at < now))
+        .delete(synchronize_session=False)
+    )
 
 
 def _issue_token(db: Session, user_id: str, purpose: str, ttl: timedelta) -> str:
