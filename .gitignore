@@ -67,3 +67,6 @@ pgdata/
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
+
+# Local agent guidance / private project notes, not for the repo
+CLAUDE.md
