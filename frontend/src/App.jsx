@@ -22,6 +22,8 @@ import Canvas from './components/Canvas'
 import ItineraryCard from './components/ItineraryCard'
 import FeedbackBubble from './components/FeedbackBubble'
 import FeedbackForm from './components/FeedbackForm'
+import ConsentBanner from './components/ConsentBanner'
+import { useConsent } from './consent'
 
 export default function App() {
   const auth = useAuth()
@@ -73,6 +75,7 @@ export default function App() {
   const share = useShare()
   const feedback = useFeedback()
   const profile = useProfile(auth.user)
+  const consent = useConsent()
   const [authOpen, setAuthOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -307,6 +310,7 @@ export default function App() {
         </FeedbackBubble>
       )}
 
+      {!consent.decided && <ConsentBanner onAccept={consent.accept} onDecline={consent.decline} />}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
       {signupPrompt && !auth.user && (
         <SignupPrompt
