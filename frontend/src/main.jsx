@@ -6,11 +6,15 @@ import SharedItinerary from './components/SharedItinerary.jsx'
 import ResetPassword from './components/ResetPassword.jsx'
 import VerifyEmail from './components/VerifyEmail.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
+import { init as initAnalytics } from './analytics'
 
 // apply the saved theme before first paint to avoid a flash
 if (localStorage.getItem('theme') === 'dark') {
   document.documentElement.setAttribute('data-theme', 'dark')
 }
+
+// Arms analytics only if a write key is configured; it stays a no-op until the consent UI opts in.
+initAnalytics()
 
 // The app has no router, so a few query params read on load are the whole routing story:
 // ?share=<id> opens the public read-only view, ?reset=<token> the password-reset form, and

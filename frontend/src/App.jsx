@@ -24,6 +24,7 @@ import FeedbackBubble from './components/FeedbackBubble'
 import FeedbackForm from './components/FeedbackForm'
 import ConsentBanner from './components/ConsentBanner'
 import { useConsent } from './consent'
+import { track, reset as resetAnalytics, events } from './analytics'
 
 export default function App() {
   const auth = useAuth()
@@ -52,11 +53,14 @@ export default function App() {
       setViewedItineraryIndex(null)
       const willNudgeSignup = !auth.user && !isEdit && !signupNudgedRef.current
       if (auth.user) {
+        // An authed delivery is persisted server-side, so this is the trip-saved funnel step.
+        track(events.TRIP_SAVED, { is_edit: !!isEdit })
         setToast(isEdit ? 'Trip updated.' : 'Trip saved to your account.')
         setTimeout(() => setToast(null), 4000)
       } else if (willNudgeSignup) {
         // Nudge signup once per conversation, not on every fresh plan (regenerate) or follow-up edit.
         signupNudgedRef.current = true
+        track(events.SIGNUP_PROMPT_SHOWN)
         setSignupPrompt(true)
       }
       // Offer a one-time, dismissible rating bubble for a fresh plan, but not alongside the signup
@@ -163,6 +167,7 @@ export default function App() {
   // Sign out also resets the chat so the next person does not inherit the session.
   const handleSignOut = () => {
     auth.logout()
+    resetAnalytics()
     newChat()
     setSidebarOpen(false)
   }
@@ -189,6 +194,7 @@ export default function App() {
     return (
       <Landing
         onEnter={() => {
+          track(events.APP_ENTERED)
           localStorage.setItem('atlas_entered', '1')
           setEntered(true)
         }}

@@ -1,7 +1,13 @@
+import { useEffect } from 'react'
 import CompassMark from './CompassMark'
+import { track, events } from '../analytics'
 
 // Marketing landing shown on first load. Copy is plain placeholder, pending the marketing pass.
 export default function Landing({ onEnter }) {
+  useEffect(() => {
+    track(events.LANDING_VIEWED)
+  }, [])
+
   return (
     <div className="landing">
       <div className="landing__hero">

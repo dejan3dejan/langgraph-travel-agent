@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { apiUrl } from '../api'
 import { readAnonPrefs } from './useProfile'
+import { track, identify, events } from '../analytics'
 
 const TOKEN_KEY = 'atlas_token'
 const USER_KEY = 'atlas_user'
@@ -31,6 +32,9 @@ export function useAuth() {
       localStorage.setItem(TOKEN_KEY, data.access_token)
       localStorage.setItem(USER_KEY, JSON.stringify(data.user))
       setUser(data.user)
+      // Tie events to the account by id. method distinguishes a true signup from a returning login.
+      identify(data.user?.id)
+      track(events.SIGNUP_COMPLETED, { method: path })
       return true
     } catch (e) {
       setError(e.message)

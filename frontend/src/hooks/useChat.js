@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { stageFor } from '../planningStages'
 import { apiUrl } from '../api'
 import { readAnonPrefs } from './useProfile'
+import { track, events } from '../analytics'
 
 // Map stored {user, model} history into UI message shape, marking itinerary messages so they
 // render as markdown.
@@ -87,10 +88,17 @@ export function useChat({ onItineraryDelivered } = {}) {
     resetCompare()
     setIsStreaming(true)
 
+    track(events.PLAN_REQUESTED, {
+      is_retry: !!opts.isRetry,
+      is_regenerate: !!opts.isRegenerate,
+      compare: !!opts.compare,
+    })
+
     let aiContent = ''
     let isItinerary = false
     let isEdit = false
     let editSummary = ''
+    let dayCount = 0
     let currentStatuses = []
     let lastActiveNode = null
 
@@ -231,7 +239,10 @@ export function useChat({ onItineraryDelivered } = {}) {
                   isItinerary = event.is_itinerary || false
                   isEdit = event.is_edit || false
                   editSummary = event.edit_summary || ''
-                  if (isItinerary && !isEdit) setItineraryGeo(event.geo || { hotel: null, days: [] })
+                  if (isItinerary && !isEdit) {
+                    setItineraryGeo(event.geo || { hotel: null, days: [] })
+                    dayCount = event.geo?.days?.length ?? 0
+                  }
                   aiContent = variantBufRef.current.A
                   resetCompare()
                 }
@@ -242,7 +253,10 @@ export function useChat({ onItineraryDelivered } = {}) {
               isEdit = event.is_edit || false
               editSummary = event.edit_summary || ''
               // A fresh plan refreshes the map; an edit re-geocodes nothing, so keep the prior map.
-              if (isItinerary && !isEdit) setItineraryGeo(event.geo || { hotel: null, days: [] })
+              if (isItinerary && !isEdit) {
+                setItineraryGeo(event.geo || { hotel: null, days: [] })
+                dayCount = event.geo?.days?.length ?? 0
+              }
               break
             }
 
@@ -266,7 +280,10 @@ export function useChat({ onItineraryDelivered } = {}) {
         })
       }
 
-      if (isItinerary) onItineraryRef.current?.({ isEdit })
+      if (isItinerary) {
+        track(events.ITINERARY_DELIVERED, isEdit ? { is_edit: true } : { is_edit: false, day_count: dayCount })
+        onItineraryRef.current?.({ isEdit })
+      }
     } catch (err) {
       // A stopped or failed compare leaves no half-built variants behind.
       if (comparingRef.current) resetCompare()
@@ -337,6 +354,7 @@ export function useChat({ onItineraryDelivered } = {}) {
     setMessages(prev => [...prev, { role: 'ai', content: chosen.content, isItinerary: true }])
     setItineraryGeo(chosen.geo || { hotel: null, days: [] })
     resetCompare()
+    track(events.ITINERARY_DELIVERED, { is_edit: false, day_count: chosen.geo?.days?.length ?? 0 })
     onItineraryRef.current?.({ isEdit: false, fromCompare: true, chosen: variant })
   }, [])
 
@@ -365,7 +383,7 @@ export function useChat({ onItineraryDelivered } = {}) {
   // pipeline keys on these words: a post-plan message matching them re-runs the full research and
   // compile pass (fresh map/geo, is_edit stays false) instead of editing the prior plan in place.
   const regenerate = useCallback(() => {
-    return sendMessage('Regenerate this plan from scratch with fresh ideas.')
+    return sendMessage('Regenerate this plan from scratch with fresh ideas.', { isRegenerate: true })
   }, [sendMessage])
 
   return { messages, statuses, isStreaming, itineraryGeo, planningStage, variants, activeVariant, selectVariant, keepVariant, sessionId: sessionIdRef.current, sendMessage, stopStreaming, newChat, showItinerary, loadSession, retry, regenerate }
