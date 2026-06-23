@@ -1066,12 +1066,28 @@
 .settings-danger:active:not(:disabled) { transform: translateY(2px); box-shadow: var(--shadow-pressed); }
 .settings-danger:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* Entrance for the centered overlays (toast, signup nudge). The -50% X shift is baked into the
+   keyframes because animation fill-mode persists the end transform, which would otherwise wipe out a
+   static transform: translateX(-50%) and leave the overlay off-center. */
+@keyframes overlay-in {
+  from { opacity: 0; transform: translate(-50%, 16px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Transform-free entrance for the split-view variant below, which is pinned left and must not carry
+   the -50% shift. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* In the split the canvas owns the right side, so float confirmations over the chat column
    instead of dead-center where they would cover the map and legend. */
 .app--split .toast,
 .app--split .signup-prompt {
   left: max(24px, calc(50vw - 600px));
   transform: none;
+  animation-name: fade-in;
 }
 
 /* toast confirmation (e.g. trip saved) */
@@ -1090,7 +1106,7 @@
   color: var(--text);
   font-size: 0.85rem;
   box-shadow: var(--shadow-floating);
-  animation: msg-in 0.3s var(--ease-out-expo) both;
+  animation: overlay-in 0.3s var(--ease-out-expo) both;
 }
 
 .toast__close {
@@ -1120,7 +1136,7 @@
   color: var(--text);
   font-size: 0.85rem;
   box-shadow: var(--shadow-floating);
-  animation: msg-in 0.3s var(--ease-out-expo) both;
+  animation: overlay-in 0.3s var(--ease-out-expo) both;
 }
 
 .signup-prompt__actions { display: flex; align-items: center; gap: 8px; }
