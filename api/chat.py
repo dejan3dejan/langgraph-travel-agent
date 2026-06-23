@@ -14,6 +14,8 @@ from core.database import ChatSession, SessionLocal, Trip, User, UserPreference,
 from core.logger import get_logger
 from core.orchestrator import TravelOrchestrator
 from core.schemas import IntakePrefs, intake_to_seeded
+from core.signal_store import descriptors_from, edited_payload, planning_context, record_signal
+from core.signals import ITINERARY_EDITED, ITINERARY_KEPT, ITINERARY_REGENERATED, VARIANT_KEPT
 
 from .auth import get_current_user
 from .authz import can_edit_session
@@ -122,7 +124,25 @@ def _new_variant_buckets() -> dict:
 
 def _new_variant_meta() -> dict:
     """Variant-A metadata captured from its end event, used to persist (or stage) after the stream."""
-    return {"is_itinerary": False, "is_edit": False, "user_details": {}}
+    return {"is_itinerary": False, "is_edit": False, "regenerate": False, "user_details": {}}
+
+
+def _record_plan_signal(session_id: str, user: User | None, meta: dict, user_text: str) -> None:
+    """Record the implicit signal for a delivered plan: an edit, a regenerate (re-plan), or a first
+    keep. Best-effort and isolated (record_signal owns its own transaction), so it never affects the
+    save that just happened."""
+    ud = meta.get("user_details", {})
+    uid = user.id if user else None
+    if meta.get("is_edit"):
+        record_signal(
+            event_type=ITINERARY_EDITED, user_id=uid, session_id=session_id, payload=edited_payload(ud, user_text)
+        )
+    elif meta.get("regenerate"):
+        record_signal(
+            event_type=ITINERARY_REGENERATED, user_id=uid, session_id=session_id, payload=descriptors_from(ud)
+        )
+    else:
+        record_signal(event_type=ITINERARY_KEPT, user_id=uid, session_id=session_id, payload=descriptors_from(ud))
 
 
 def _apply_stream_event(variants: dict, meta: dict, event: dict) -> None:
@@ -142,6 +162,7 @@ def _apply_stream_event(variants: dict, meta: dict, event: dict) -> None:
         if variant == "A":
             meta["is_itinerary"] = event.get("is_itinerary", False)
             meta["is_edit"] = event.get("is_edit", False)
+            meta["regenerate"] = event.get("regenerate", False)
             meta["user_details"] = event.get("user_details", {})
 
 
@@ -276,6 +297,8 @@ def _persist_single_turn(
             _remember_user_prefs(persist_db, user, meta.get("user_details", {}))
         persist_db.commit()
         logger.info(f"Stream data persisted for session {session_id}")
+        if meta.get("is_itinerary"):
+            _record_plan_signal(session_id, user, meta, user_text)
     except Exception as save_err:
         logger.error(f"Final persistence failed: {save_err}")
     finally:
@@ -316,10 +339,12 @@ async def chat(
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
+    prefs = _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
+    learned = planning_context(db, user.id if user else None, session_id, prefs)
 
     try:
-        response_text, updated_history, _, user_details, is_itinerary, is_edit = await orchestrator.chat(
-            user_text, history, _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
+        response_text, updated_history, _, user_details, is_itinerary, is_edit, regenerate = await orchestrator.chat(
+            user_text, history, prefs, learned_context=learned
         )
 
         db_session.data["history"] = updated_history
@@ -333,6 +358,12 @@ async def chat(
                 _upsert_trip(db, session_id, user, user_details, response_text, is_edit)
                 _remember_user_prefs(db, user, user_details)
                 db.commit()
+                _record_plan_signal(
+                    session_id,
+                    user,
+                    {"is_edit": is_edit, "regenerate": regenerate, "user_details": user_details},
+                    user_text,
+                )
             except Exception as e:
                 logger.error(f"Failed to save trip: {e}")
 
@@ -359,6 +390,7 @@ async def chat_stream(
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
     prefs = _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
+    learned = planning_context(db, user.id if user else None, session_id, prefs)
 
     if not db_session.title or db_session.title == "New Chat":
         db_session.title = user_text[:60]
@@ -374,7 +406,9 @@ async def chat_stream(
             # (this is what gives the web UI cross-turn memory).
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
 
-            async for event in orchestrator.stream_chat(user_text, history, prefs, compare=chat_message.compare):
+            async for event in orchestrator.stream_chat(
+                user_text, history, prefs, compare=chat_message.compare, learned_context=learned
+            ):
                 _apply_stream_event(variants, meta, event)
                 yield f"data: {json.dumps(event)}\n\n"
 
@@ -440,6 +474,14 @@ async def keep_variant(
         )
         _remember_user_prefs(db, user, pending.get("user_details", {}))
         db.commit()
+        # A kept variant is a high-trust positive on the profile; we do not record the discarded one
+        # as a negative because both variants share the same profile (they differ only in specifics).
+        record_signal(
+            event_type=VARIANT_KEPT,
+            user_id=user.id if user else None,
+            session_id=payload.session_id,
+            payload=descriptors_from(pending.get("user_details", {})),
+        )
         logger.info(f"Kept variant {payload.variant} for session {payload.session_id}")
     except Exception as e:
         logger.error(f"Failed to keep variant: {e}")

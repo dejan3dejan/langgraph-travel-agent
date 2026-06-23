@@ -53,8 +53,12 @@ class TravelOrchestrator:
         self.app = app
 
     async def chat(
-        self, user_message: str, history: list[dict[str, str]], user_prefs: dict[str, Any] | None = None
-    ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool, bool]:
+        self,
+        user_message: str,
+        history: list[dict[str, str]],
+        user_prefs: dict[str, Any] | None = None,
+        learned_context: str | None = None,
+    ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool, bool, bool]:
         """Standard invocation of the LangGraph workflow."""
         updated_history = list(history)
         updated_history.append({"role": "user", "content": user_message})
@@ -63,6 +67,7 @@ class TravelOrchestrator:
             "messages": bound_history(updated_history),
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
+            "learned_context": learned_context,
             "request_nonce": random.randint(0, 1_000_000),
         }
 
@@ -89,10 +94,11 @@ class TravelOrchestrator:
                 result.get("user_details", {}),
                 is_itinerary,
                 result.get("is_edit", False),
+                bool(result.get("regenerate", False)),
             )
 
         except Exception as e:
-            return f"System Error: {str(e)}", history, [], {}, False, False
+            return f"System Error: {str(e)}", history, [], {}, False, False, False
 
     async def _stream_graph_events(self, graph, inputs: dict, variant: str | None, capture: dict):
         """Stream one graph run: yield cleaned status/token/reset events (tagged with `variant`) and
@@ -125,6 +131,8 @@ class TravelOrchestrator:
                         capture["season_suggestion"] = out["season_suggestion"]
                     if out.get("is_edit"):
                         capture["is_edit"] = True
+                    if out.get("regenerate"):
+                        capture["regenerate"] = True
                     if out.get("edit_instruction"):
                         capture["edit_summary"] = out["edit_instruction"]
 
@@ -187,6 +195,7 @@ class TravelOrchestrator:
         history: list[dict[str, str]],
         user_prefs: dict[str, Any] | None = None,
         compare: bool = False,
+        learned_context: str | None = None,
     ):
         """Asynchronous generator that yields clean dict events from LangGraph. With compare=True a
         freshly produced plan streams two diversified variants (A then B): every event is tagged with
@@ -198,6 +207,7 @@ class TravelOrchestrator:
             "messages": bound_history(updated_history),
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
+            "learned_context": learned_context,
             "request_nonce": random.randint(0, 1_000_000),
         }
 
@@ -216,6 +226,7 @@ class TravelOrchestrator:
                 "is_itinerary": produced_a,
                 "user_details": capture_a.get("user_details", {}),
                 "is_edit": is_edit_a,
+                "regenerate": capture_a.get("regenerate", False),
                 "edit_summary": capture_a.get("edit_summary", ""),
                 "geo": capture_a.get("geo"),
                 "is_final": not do_compare,
