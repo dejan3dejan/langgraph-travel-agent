@@ -59,6 +59,20 @@ export function useTrips(user) {
     return res.ok ? res.json() : null
   }, [])
 
+  // Fire-and-forget: record that the user reopened a saved trip, an implicit signal that they value
+  // it. Never blocks or surfaces an error; personalization is best-effort.
+  const reportOpen = useCallback(async (tripId) => {
+    try {
+      await fetch(apiUrl('/api/signals'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ event_type: 'trip_opened', trip_id: tripId }),
+      })
+    } catch {
+      // ignore: a missed signal must never affect the user's flow
+    }
+  }, [])
+
   // Invite a registered user to one of the owner's trips. Returns null on success, an error message
   // on failure, so the caller can surface a precise reason (unknown email, not the owner).
   const invite = useCallback(async (tripId, email, role) => {
@@ -72,5 +86,5 @@ export function useTrips(user) {
     return data.detail || `Could not invite (${res.status})`
   }, [])
 
-  return { trips, sharedTrips, loading, error, refresh, remove, getDetail, getSession, invite }
+  return { trips, sharedTrips, loading, error, refresh, remove, getDetail, getSession, reportOpen, invite }
 }

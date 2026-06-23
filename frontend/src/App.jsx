@@ -173,6 +173,7 @@ export default function App() {
   }
 
   const handleSelectTrip = async (trip) => {
+    trips.reportOpen(trip.id)  // implicit signal: reopening a saved trip marks it as one they value
     const detail = await trips.getDetail(trip.id)
     // Prefer resuming the full conversation so the user can keep chatting.
     if (detail?.session_id) {
