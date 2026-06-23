@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -184,6 +185,26 @@ class Feedback(Base):
         CheckConstraint("rating is null or (rating >= 1 and rating <= 5)", name="feedback_rating_range"),
         CheckConstraint("rating is not null or message is not null", name="feedback_has_content"),
     )
+
+
+class InteractionSignal(Base):
+    __tablename__ = "interaction_signals"
+
+    # Implicit behavioral signals that feed back into planning (see docs/design/implicit-signals.md).
+    # user_id is nullable so an anonymous session's signals are still captured; payload holds only
+    # trip descriptors (no itinerary text, no PII).
+    __table_args__ = (
+        # Recent-signals lookup is "by user, newest first"; the composite also serves user-only filters.
+        Index("ix_interaction_signals_user_created", "user_id", "created_at"),
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    session_id = Column(String, ForeignKey("chat_sessions.session_id"), index=True, nullable=True)
+    trip_id = Column(String, ForeignKey("trips.id"), nullable=True)
+    event_type = Column(String, nullable=False, index=True)
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
 
 
 class GeocodingCache(Base):
