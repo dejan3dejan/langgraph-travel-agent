@@ -190,6 +190,11 @@ export default function App() {
     }
   }
 
+  const handleInvite = async (tripId, email, role) => {
+    const err = await trips.invite(tripId, email, role)
+    setToast(err || `Invited ${email} as ${role}`)
+  }
+
   if (!entered) {
     return (
       <Landing
@@ -329,10 +334,12 @@ export default function App() {
       {sidebarOpen && (
         <Sidebar
           trips={trips.trips}
+          sharedTrips={trips.sharedTrips}
           loading={trips.loading}
           error={trips.error}
           onSelect={handleSelectTrip}
           onDelete={trips.remove}
+          onInvite={handleInvite}
           onClose={() => setSidebarOpen(false)}
         />
       )}
