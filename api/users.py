@@ -3,6 +3,7 @@
 import os
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -10,13 +11,14 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from core import email as email_boundary
-from core.database import AuthToken, ChatSession, Trip, User, UserPreference, get_db
+from core.database import AuthToken, ChatSession, Trip, TripMember, User, UserPreference, get_db
 from core.logger import get_logger
 from core.ratelimit import within_limit
 from core.schemas import IntakePrefs, TravelConstraints, intake_to_preference_columns
 from core.tokens import generate_token, hash_token, is_token_usable, token_expires_at
 
 from .auth import create_access_token, hash_password, require_user, verify_password
+from .authz import OWNER, role_can_read, session_access, trip_access
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -193,6 +195,27 @@ class TripDetail(TripSummary):
     itinerary_text: str | None
     session_id: str | None
     geo: dict | None = None
+    # The viewer's role on this trip ('owner'|'editor'|'viewer'), so the client knows whether to
+    # offer edit controls.
+    role: str = OWNER
+
+
+class SharedTripSummary(TripSummary):
+    # A trip shared with the current user: who owns it and what role they were granted.
+    role: str
+    owner: str
+
+
+class MemberInfo(BaseModel):
+    user_id: str
+    username: str
+    email: str
+    role: str
+
+
+class InviteMemberRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    role: Literal["viewer", "editor"] = "viewer"
 
 
 class SessionSummary(BaseModel):
@@ -588,14 +611,41 @@ async def list_trips(user: User = Depends(require_user), db: Session = Depends(g
     ]
 
 
+@router.get("/trips/shared", response_model=list[SharedTripSummary])
+async def list_shared_trips(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Trips that other users have shared with the current user, with the granted role and the
+    owner's username so the sidebar can show them apart from owned trips."""
+    rows = (
+        db.query(Trip, TripMember.role, User.username)
+        .join(TripMember, TripMember.trip_id == Trip.id)
+        .join(User, User.id == Trip.user_id)
+        .filter(TripMember.user_id == user.id)
+        .order_by(Trip.created_at.desc())
+        .all()
+    )
+
+    return [
+        SharedTripSummary(
+            id=trip.id,
+            destination=trip.destination,
+            duration=trip.duration,
+            budget=trip.budget,
+            created_at=trip.created_at.isoformat(),
+            role=role,
+            owner=owner_username,
+        )
+        for trip, role, owner_username in rows
+    ]
+
+
 @router.get("/trips/{trip_id}", response_model=TripDetail)
 async def get_trip(trip_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    """Get a specific saved trip with full itinerary."""
-    trip = db.query(Trip).filter(Trip.id == trip_id, Trip.user_id == user.id).first()
-
-    if not trip:
+    """Get a specific saved trip with full itinerary. Readable by the owner and any member."""
+    role = trip_access(db, trip_id, user)
+    if not role_can_read(role):
         raise HTTPException(status_code=404, detail="Trip not found")
 
+    trip = db.query(Trip).filter(Trip.id == trip_id).first()
     return TripDetail(
         id=trip.id,
         destination=trip.destination,
@@ -606,6 +656,7 @@ async def get_trip(trip_id: str, user: User = Depends(require_user), db: Session
         session_id=trip.session_id,
         geo=trip.geo,
         created_at=trip.created_at.isoformat(),
+        role=role,
     )
 
 
@@ -620,6 +671,77 @@ async def delete_trip(trip_id: str, user: User = Depends(require_user), db: Sess
     db.delete(trip)
     db.commit()
     logger.info(f"Trip {trip_id} deleted by {user.id}")
+
+
+# Trip collaboration (members)
+
+
+def _require_trip_role(db: Session, trip_id: str, user: User, *, owner_only: bool) -> str:
+    """Resolve the user's role on a trip or raise. 404 when they have no access at all (so a
+    non-member cannot tell whether the trip exists); 403 when access exists but is below what the
+    action needs."""
+    role = trip_access(db, trip_id, user)
+    if not role_can_read(role):
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if owner_only and role != OWNER:
+        raise HTTPException(status_code=403, detail="Only the trip owner can do that")
+    return role
+
+
+@router.get("/trips/{trip_id}/members", response_model=list[MemberInfo])
+async def list_members(trip_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """List a trip's collaborators. Visible to the owner and any member."""
+    _require_trip_role(db, trip_id, user, owner_only=False)
+    rows = (
+        db.query(TripMember, User).join(User, User.id == TripMember.user_id).filter(TripMember.trip_id == trip_id).all()
+    )
+    return [
+        MemberInfo(user_id=member.user_id, username=u.username, email=u.email, role=member.role) for member, u in rows
+    ]
+
+
+@router.post("/trips/{trip_id}/members", response_model=MemberInfo, status_code=status.HTTP_201_CREATED)
+async def add_member(
+    trip_id: str, req: InviteMemberRequest, user: User = Depends(require_user), db: Session = Depends(get_db)
+):
+    """Invite a registered user to a trip by email with a role. Owner only. Re-inviting an existing
+    member updates their role."""
+    _require_trip_role(db, trip_id, user, owner_only=True)
+
+    invitee = db.query(User).filter(User.email == req.email.lower().strip()).first()
+    if not invitee:
+        raise HTTPException(status_code=404, detail="No registered user with that email")
+    if invitee.id == user.id:
+        raise HTTPException(status_code=400, detail="You already own this trip")
+
+    member = db.query(TripMember).filter(TripMember.trip_id == trip_id, TripMember.user_id == invitee.id).first()
+    if member:
+        member.role = req.role
+    else:
+        member = TripMember(trip_id=trip_id, user_id=invitee.id, role=req.role, invited_by=user.id)
+        db.add(member)
+    db.commit()
+    logger.info(f"Trip {trip_id}: {invitee.id} granted {req.role} by {user.id}")
+
+    return MemberInfo(user_id=invitee.id, username=invitee.username, email=invitee.email, role=req.role)
+
+
+@router.delete("/trips/{trip_id}/members/{member_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_member(
+    trip_id: str, member_user_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)
+):
+    """Remove a collaborator. The owner can remove anyone; a member can remove only themselves."""
+    role = _require_trip_role(db, trip_id, user, owner_only=False)
+    if role != OWNER and member_user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the trip owner can remove other members")
+
+    member = db.query(TripMember).filter(TripMember.trip_id == trip_id, TripMember.user_id == member_user_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    db.delete(member)
+    db.commit()
+    logger.info(f"Trip {trip_id}: member {member_user_id} removed by {user.id}")
 
 
 # Chat session management
@@ -646,10 +768,11 @@ async def list_sessions(user: User = Depends(require_user), db: Session = Depend
 
 @router.get("/sessions/{session_id}", response_model=SessionDetail)
 async def get_session(session_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    """Get a chat session's full history so the client can resume the conversation."""
-    session = db.query(ChatSession).filter(ChatSession.session_id == session_id, ChatSession.user_id == user.id).first()
-    if not session:
+    """Get a chat session's full history so the client can resume the conversation. Readable by the
+    session owner and any member of a trip under it."""
+    if not role_can_read(session_access(db, session_id, user)):
         raise HTTPException(status_code=404, detail="Session not found")
+    session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
 
     return SessionDetail(
         session_id=session.session_id,

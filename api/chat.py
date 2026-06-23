@@ -4,7 +4,7 @@ import asyncio
 import json
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from core.orchestrator import TravelOrchestrator
 from core.schemas import IntakePrefs, intake_to_seeded
 
 from .auth import get_current_user
+from .authz import can_edit_session
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -41,6 +42,14 @@ class ChatResponse(BaseModel):
     message: str
     state: str
     itinerary: str | None = None
+
+
+def _ensure_can_edit(db: Session, session_id: str | None, user: User | None) -> None:
+    """Block edits to a session the requester may not change. A new or anonymous session is open; an
+    owned session requires the requester to be its owner or an editor member. This is the only edit
+    boundary on the chat endpoints, so it has to run before any session is created or mutated."""
+    if not can_edit_session(db, session_id, user):
+        raise HTTPException(status_code=403, detail="You do not have edit access to this trip")
 
 
 def get_or_create_session(db: Session, session_id: str | None, user: User | None) -> tuple[str, ChatSession]:
@@ -303,6 +312,7 @@ async def chat(
     db: Session = Depends(get_db),
 ):
     """Standard non-streaming chat endpoint. Works for both anonymous and authenticated users."""
+    _ensure_can_edit(db, chat_message.session_id, user)
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
@@ -344,6 +354,7 @@ async def chat_stream(
     db: Session = Depends(get_db),
 ):
     """Streaming chat endpoint with guaranteed persistence. Supports anonymous and authenticated."""
+    _ensure_can_edit(db, chat_message.session_id, user)
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     user_text = chat_message.message.strip()
@@ -400,6 +411,7 @@ async def keep_variant(
     """Commit the variant the user chose from an A/B compare. Appends the original request and the
     chosen itinerary to history, upserts the trip, clears the staged variants, and collapses the
     session back to the single-itinerary flow."""
+    _ensure_can_edit(db, payload.session_id, user)
     db_session = db.query(ChatSession).filter(ChatSession.session_id == payload.session_id).first()
     if not db_session:
         return ChatResponse(session_id=payload.session_id, message="Session not found.", state="error")

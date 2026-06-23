@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
@@ -108,6 +109,29 @@ class Trip(Base):
 
     user = relationship("User", back_populates="trips")
     session = relationship("ChatSession", back_populates="trips")
+    members = relationship("TripMember", back_populates="trip", cascade="all, delete-orphan")
+
+
+class TripMember(Base):
+    __tablename__ = "trip_members"
+
+    # Collaborators on a trip. The owner stays on Trip.user_id and is not a member row; this table
+    # holds invited users with a viewer (read) or editor (read + edit) role. Session access is
+    # derived from membership of the trip that owns the session.
+    __table_args__ = (
+        UniqueConstraint("trip_id", "user_id", name="uq_trip_member"),
+        CheckConstraint("role IN ('viewer', 'editor')", name="ck_trip_member_role"),
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    trip_id = Column(String, ForeignKey("trips.id"), index=True, nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
+    role = Column(String, nullable=False, default="viewer")
+    invited_by = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    trip = relationship("Trip", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class SharedItinerary(Base):
@@ -193,7 +217,7 @@ def _run_migrations():
     """Bring the schema to the latest Alembic revision.
 
     The baseline migration creates the pgvector extension and all tables, so this
-    replaces the old create_all() + manual CREATE EXTENSION. Idempotent — a no-op
+    replaces the old create_all() + manual CREATE EXTENSION. Idempotent, a no-op
     when already at head, which makes it safe to run on every startup.
     """
     from alembic import command
