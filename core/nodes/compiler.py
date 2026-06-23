@@ -414,6 +414,12 @@ async def compiler_node(state: AgentState) -> dict:
     hard_constraints, soft_constraints = render_constraints(user_details.get("constraints"))
     prior_violations = ", ".join((state.get("critique") or {}).get("hard_violations") or [])
 
+    # Advisory personalization from past behavior. Already bounded to enums/known values upstream
+    # (core/signals), so it carries no untrusted free text; framed as hints that never override the
+    # hard requirements above.
+    learned = state.get("learned_context")
+    learned_block = f"\n{learned}\n" if learned else ""
+
     if in_destination:
         origin_line = f"- Currently in: {user_details.get('destination', '')}"
     elif _origin_known(start_location):
@@ -440,7 +446,7 @@ TRAVELER PROFILE (use this to personalize the narrative)
 - Hard requirements (MUST satisfy, never violate): {hard_constraints or 'none'}
 - Soft preferences (honor when possible): {soft_constraints or 'none'}
 {f"- MUST AVOID (the previous draft violated these hard requirements): {prior_violations}" if prior_violations else ""}
-
+{learned_block}
 {f"🌍 TIMING RECOMMENDATION: {season_suggestion}" if season_suggestion else ""}
 
 ═══════════════════════════════════════════════════════════════
