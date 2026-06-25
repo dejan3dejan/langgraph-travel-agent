@@ -21,6 +21,9 @@ wheels/
 .installed.cfg
 *.egg
 
+# Node
+node_modules/
+
 # Virtual Environment
 venv/
 .venv/
@@ -57,7 +60,14 @@ tests/benchmark_results.json
 tests/HUMAN_REVIEW_REPORT.md
 
 # Documentation & Support
-docs/
+# The docs/ tree holds private working notes; only the public how-it-works pages
+# below are tracked. Add new public docs to this allow-list.
+docs/*
+!docs/README.md
+!docs/architecture.md
+!docs/planning-pipeline.md
+!docs/streaming.md
+!docs/data-model.md
 STRUCTURE.md
 
 # Docker
@@ -70,3 +80,4 @@ pgdata/
 
 # Local agent guidance / private project notes, not for the repo
 CLAUDE.md
+.claude/
