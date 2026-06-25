@@ -1,293 +1,306 @@
 # Atlas Travel Companion
 
-A multi-agent system for automated travel planning, built on LangGraph with a hybrid LLM strategy and semantic caching.
+Atlas turns a short conversation into a structured, day-by-day travel itinerary. A user describes
+the trip in plain language; a multi-agent LangGraph pipeline interviews them for the missing
+details, researches food, activities, and lodging, optimizes the route, writes the plan, and reviews
+its own output. The web app shows the chat and the resulting itinerary side by side, with an
+interactive map of each day's stops.
 
-## Overview
+It is a non-commercial learning project, built to practice agent orchestration, streaming, and
+full-stack product engineering.
 
-Atlas is an AI-powered travel assistant that orchestrates multiple specialized agents to generate personalized, logically structured itineraries. It implements Agentic RAG with semantic caching to balance response speed and data freshness while minimizing API costs.
+## What it does
 
-### Key Features
+- **Conversational planning with a deterministic interview gate.** The interviewer extracts what is
+  known each turn and decides *in code* whether enough is known to plan (destination and duration are
+  required) or which single question to ask next. This slot-filling gate, not the LLM's memory, is
+  what stops the interview from looping or re-asking answered questions.
+- **Split chat + itinerary canvas.** Once a plan exists the view splits: the conversation stays on
+  one side, the rendered itinerary on the other. On mobile the split collapses to a chat/itinerary
+  toggle.
+- **Interactive map.** A Leaflet map pins each day's stops, colored by day, with route lines and the
+  hotel marked.
+- **Streaming responses.** Chat is delivered token-by-token over Server-Sent Events, with live status
+  updates as the pipeline moves through its stages.
+- **Accounts and persistence.** JWT auth with email verification, password reset, and account
+  deletion. Saved trips, saved chat sessions, and saved travel preferences.
+- **Saved, shared, and collaborative trips.** Trips persist to a sidebar; a trip can be shared
+  read-only via an unguessable public link, or shared with another registered user as a viewer or
+  editor (collaboration is keyed on trip membership).
+- **A/B variants and regenerate.** A plan can be requested in compare mode, which streams two
+  diversified variants for the user to choose between; the chosen one is committed. A delivered plan
+  can also be regenerated from scratch with fresh ideas.
+- **Export and sharing.** One-click PDF export (rendered server-side), a public share link, and a
+  full personal-data export.
+- **Personalization.** Saved profile preferences seed the interview so Atlas stops re-asking. An
+  implicit-signal layer records behavioral signals (a plan kept, regenerated, or edited; a variant
+  kept; a trip opened) and folds them, plus explicit star ratings, into an advisory preference
+  "portrait" that steers later plans. Scoring is heuristic, not an ML model.
+- **Product analytics.** Optional PostHog funnel analytics, behind a consent gate and a write-key
+  gate; a hard no-op unless both open.
+- **Privacy controls.** A consent banner, a personal-data export endpoint, and account deletion that
+  cascades the user's trips, sessions, preferences, and tokens.
+- **Semantic cache.** Research results are cached as pgvector embeddings and reused when a new query
+  is similar enough and fresh enough, to cut latency and API cost.
+- **Multi-destination trips.** A single request can cover more than one city.
 
-- **Multi-Agent Orchestration**: LangGraph StateGraph with 7 specialized nodes and conditional routing
-- **Hybrid LLM Strategy**: OpenAI for conversation/writing, Google Gemini (with live Google Search grounding) for research
-- **User Accounts**: JWT authentication, saved preferences, persisted trips and chat sessions
-- **Multi-Destination Support**: Plan trips across multiple cities (e.g., "Paris and Rome in 7 days")
-- **React Frontend**: Real-time SSE streaming chat UI with Framer Motion animations
-- **Semantic Caching**: PostgreSQL + pgvector embeddings for intelligent research data reuse
-- **Route Optimization**: Proximity-zone grouping + nearest-neighbor day planning
-- **Async Pipeline**: Fully async graph execution — no event loop blocking
-- **Observability**: Request tracing (X-Request-ID), per-endpoint latency, aggregate `/api/metrics`
-- **CI**: GitHub Actions runs linting and smoke tests on every push and PR
-- **Docker-Ready**: Single-command deployment with docker-compose (app + DB + frontend)
-
-## Architecture
+## Architecture at a glance
 
 ```
-User Request
-  -> FastAPI (api/main.py)
-    -> TravelOrchestrator
-      -> LangGraph StateGraph
-        -> Interviewer (profile the traveler, extract preferences)
-        -> [Parallel] Food + Activity + Hotel Research
-          -> Each checks Semantic Cache (pgvector) before Gemini + Google Search
-        -> Logistics Agent (async geocoding via Nominatim)
-        -> Compiler (zone-optimized Markdown itinerary)
-        -> Critic (QA review, may loop back to research or compiler)
-      -> Response
-    -> PostgreSQL persistence (users, sessions, trips)
+Browser (React 19 + Vite)
+  │  POST /api/chat/stream   (Server-Sent Events)
+  ▼
+FastAPI (api/main.py, api/chat.py)
+  │  TravelOrchestrator.stream_chat  (core/orchestrator.py)
+  ▼
+LangGraph StateGraph (core/graph.py, core/nodes/)
+  Interviewer ──(gate: enough info?)──► Research (food ‖ activity ‖ hotel)
+        │                                      │  each checks the pgvector semantic cache first
+        │                                      ▼
+        └─ ask one question / answer       Logistics (async geocoding + zone routing)
+                                               ▼
+                                           Compiler (writes the itinerary, emits map geo)
+                                               ▼
+                                           Critic (quality review; may loop back)
+  │
+  ▼
+PostgreSQL + pgvector  (users, trips, chat_sessions, preferences, signals, cache, …)
 ```
 
-### Agent Workflow
+More detail, with diagrams, lives in [docs/](docs/).
 
-1. **Interviewer**: Builds a traveler profile through conversation — destination, duration, budget, who's going, trip type, timing — then triggers research.
-2. **Research Agents** (parallel execution):
-   - Food Agent: Sources restaurants via Gemini + Google Search grounding
-   - Activity Agent: Finds attractions matching user interests
-   - Hotel Agent: Recommends accommodations within budget
-3. **Logistics Agent**: Async geocoding of all locations with a DB cache
-4. **Compiler**: Generates a day-by-day itinerary with zone-optimized routing
-5. **Critic**: Validates output quality; loops back to research or compiler if needed
-
-The pipeline lives in `core/graph.py` (wiring) and `core/nodes/` (the node implementations).
-
-### Hybrid LLM Strategy
-
-Each pipeline role is assigned the best-fit model (`core/llm.py`):
-
-| Role | Model | Why |
-|---|---|---|
-| Interviewer | OpenAI GPT-4o-mini | Natural conversational tone |
-| Compiler | OpenAI GPT-4o-mini | Strong long-form writing |
-| Research | Google Gemini 2.5 Flash | Built-in Google Search grounding for live data |
-| Extraction | Google Gemini 2.5 Flash Lite | Cheap, fast structured output |
-| Critic | Google Gemini 2.5 Flash Lite | Lightweight quality judgment |
-
-Gemini handles research because its Google Search grounding returns current data; GPT-4o-mini's training cutoff makes it unsuitable for live prices and availability.
-
-### Semantic Cache (Agentic RAG)
-
-A self-reflection layer that avoids redundant research:
-- Query embeddings are compared against cached research using cosine similarity (pgvector)
-- Cache decisions factor in similarity score, data age, and category-specific freshness thresholds (hotels 14d, restaurants 30d, activities 45d)
-- New research results are automatically cached for future queries
-
-## Tech Stack
+## Tech stack
 
 | Component | Technology |
 |---|---|
-| Backend | FastAPI, Pydantic v2 |
-| AI Framework | LangGraph, LangChain |
-| LLMs | OpenAI GPT-4o-mini + Google Gemini 2.5 Flash / Flash Lite |
-| Embeddings | OpenAI text-embedding-3-small (1536-dim) |
+| Frontend | React 19, Vite, react-leaflet / Leaflet, Framer Motion, react-markdown + remark-gfm, posthog-js |
+| Backend | FastAPI, Pydantic v2, Uvicorn |
+| Agent framework | LangGraph, LangChain |
+| LLMs | OpenAI GPT-4o-mini (primary). Google Gemini 2.5 Flash / Flash Lite is a flag-gated fallback for the research, extraction, and critic roles (see note below) |
+| Embeddings | OpenAI text-embedding-3-small |
 | Database | PostgreSQL 16 + pgvector |
+| Migrations | Alembic |
 | Auth | JWT (python-jose), bcrypt |
-| Geocoding | Geopy (Nominatim) via async executor |
-| Frontend | React 19, Vite, Framer Motion, react-markdown |
+| Geocoding | Geopy (Nominatim), run in a worker thread, cached in Postgres |
+| PDF export | Playwright (server-side HTML-to-PDF) |
 | Containerization | Docker, docker-compose |
 | CI | GitHub Actions |
 
-## Quick Start
+### A note on the LLM strategy
 
-### Option 1: Docker (Recommended)
+The code assigns each pipeline role a best-fit model in [`core/llm.py`](core/llm.py). The design is
+hybrid: OpenAI for the conversational and writing roles (interviewer, compiler) and Gemini for
+research, extraction, and critic, because Gemini's Google Search grounding returns live data.
+
+That hybrid path is gated behind a `USE_GEMINI` flag, **currently set to `False`**, so every role
+runs on OpenAI right now (the Gemini prepay quota was depleted). In OpenAI-only mode the research
+nodes run **without** Google Search grounding, so their place data comes from the model rather than a
+live search. Flipping `USE_GEMINI` back to `True` (with Gemini billing in place) restores the hybrid
+setup and live grounding. Because of this, `OPENAI_API_KEY` is the only LLM key strictly required to
+run the app today; `GEMINI_API_KEY` is needed only when the hybrid mode is enabled.
+
+## Running locally
+
+### Option 1: Docker (recommended)
+
+Brings up Postgres (the `pgvector/pgvector:pg16` image), the backend, and the frontend together.
 
 ```bash
 cp .env.example .env
-# Edit .env with your OPENAI_API_KEY and GEMINI_API_KEY
+# Edit .env: set OPENAI_API_KEY at minimum.
 
 docker compose up --build
 ```
 
-- API: `http://localhost:8000`
 - Frontend: `http://localhost:3000`
+- API: `http://localhost:8000` (docs at `/docs`)
 
-### Option 2: Local Development
+### Option 2: Local backend
 
-Prerequisites: Python 3.12+, PostgreSQL 16+ with the pgvector extension.
+Prerequisites: Python 3.12+, PostgreSQL 16+ with the `pgvector` extension.
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Edit .env with your API keys and DATABASE_URL
+# Edit .env: set OPENAI_API_KEY and DATABASE_URL.
 
-python init_db.py
-python run_api.py
+python run_api.py               # starts the FastAPI app on :8000
 ```
 
-### Option 3: Frontend Development
+The app runs Alembic migrations to head on startup (idempotent), so the schema is created and the
+`pgvector` extension is enabled for you.
+
+### Option 3: Local frontend
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev                     # Vite dev server on :5173
 ```
 
-The frontend proxies `/api` requests to `localhost:8000` automatically.
+The Vite dev server proxies `/api` and `/health` to `http://localhost:8000`, so run the backend
+alongside it.
 
-### Option 4: CLI Mode
+### Option 4: CLI
 
 ```bash
-python cli.py
+python cli.py                   # Rich terminal interface to the same pipeline
 ```
 
 ## Configuration
 
-All configuration is via environment variables (see `.env.example`):
+Configuration is via environment variables; see [`.env.example`](.env.example) (backend) and
+[`frontend/.env.example`](frontend/.env.example).
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `OPENAI_API_KEY` | Yes | - | OpenAI API key (interviewer, compiler, embeddings) |
-| `GEMINI_API_KEY` | Yes | - | Google Gemini API key (research, extraction, critic) |
+| `OPENAI_API_KEY` | Yes | - | OpenAI key (interviewer, compiler, embeddings, and all roles while `USE_GEMINI=False`) |
+| `GEMINI_API_KEY` | Only if hybrid enabled | - | Google Gemini key; used only when `USE_GEMINI=True` |
 | `DATABASE_URL` | Yes | `postgresql://postgres:postgres@localhost:5432/travel_companion` | PostgreSQL connection string |
-| `JWT_SECRET_KEY` | Prod | `dev-secret-change-in-production` | Secret for signing JWTs (set a strong value in production) |
-| `JWT_EXPIRE_MINUTES` | No | `1440` | Access token lifetime in minutes |
-| `API_KEY` | No | - | Admin-endpoint key via `X-API-Key` (empty = dev mode) |
-| `CORS_ORIGINS` | No | `http://localhost:3000,http://localhost:5173` | Allowed frontend origins |
-| `RATE_LIMIT_MAX` | No | `30` | Max requests per IP per window |
-| `RATE_LIMIT_WINDOW` | No | `60` | Rate limit window in seconds |
+| `ENVIRONMENT` | Prod | `development` | Set to `production` to make the app refuse to start with a missing/default `JWT_SECRET_KEY` |
+| `JWT_SECRET_KEY` | Prod | `change-this-in-production` | Secret for signing JWTs; must be a real value in production |
+| `JWT_EXPIRE_MINUTES` | No | `1440` | Access-token lifetime in minutes |
+| `API_KEY` | No | - | Optional admin key via `X-API-Key`; empty disables it |
+| `CORS_ORIGINS` | No | `http://localhost:3000,http://localhost:5173` | Allowed frontend origins (no wildcards) |
+| `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW` | No | `30` / `60` | Per-IP sliding-window rate limit |
+| `RESEND_API_KEY`, `EMAIL_*` | No | - | Transactional email for verification/reset; degrades to a logged no-op when unset |
+| `VITE_API_URL` (frontend) | Prod | - | Backend origin, baked in at build time; leave empty for local dev |
+| `VITE_POSTHOG_KEY` (frontend) | No | - | PostHog write key; analytics stay off until this and consent are both present |
 
-## API Endpoints
+## API surface
 
-### Chat
+All routes are under `/api` unless noted. Auth is a Bearer JWT; many chat routes also work
+anonymously.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `POST` | `/api/chat` | Optional | Standard chat (non-streaming) |
-| `POST` | `/api/chat/stream` | Optional | SSE streaming chat |
+**Chat** (`api/chat.py`)
+- `POST /api/chat` - non-streaming chat
+- `POST /api/chat/stream` - SSE streaming chat (the web UI uses this)
+- `POST /api/chat/keep-variant` - commit the chosen A/B variant
 
-Chat works anonymously; with a Bearer token, sessions and trips are owned by the user.
+**Auth, account, preferences, trips, sessions** (`api/users.py`)
+- `POST /api/users/register`, `POST /api/users/login`
+- `GET /api/users/me`, `POST /api/users/me/password`, `DELETE /api/users/me`
+- `POST /api/users/verify-email`, `POST /api/users/resend-verification`
+- `POST /api/users/forgot-password`, `POST /api/users/reset-password`
+- `GET /api/users/me/export` - personal-data export
+- `GET/PUT /api/users/preferences`
+- `GET /api/users/trips`, `GET /api/users/trips/shared`, `GET /api/users/trips/{id}`, `DELETE /api/users/trips/{id}`
+- `GET /api/users/trips/{id}/members`, `POST /api/users/trips/{id}/members`, `DELETE /api/users/trips/{id}/members/{user_id}`
+- `GET /api/users/sessions`, `GET /api/users/sessions/{id}`, `DELETE /api/users/sessions/{id}`
 
-### Auth & Users
+**Export, share, feedback, signals**
+- `POST /api/export/pdf` (`api/export.py`)
+- `POST /api/share`, `GET /api/share/{id}`, `DELETE /api/share/{id}` (`api/share.py`)
+- `POST /api/feedback` (`api/feedback.py`)
+- `POST /api/signals` - client-reported `trip_opened` only (`api/signals.py`)
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `POST` | `/api/users/register` | No | Create an account, returns a JWT |
-| `POST` | `/api/users/login` | No | Authenticate, returns a JWT |
-| `GET` | `/api/users/me` | Yes | Current user profile |
-| `GET` | `/api/users/preferences` | Yes | Saved travel defaults |
-| `PUT` | `/api/users/preferences` | Yes | Update saved defaults |
-| `GET` | `/api/users/trips` | Yes | List saved trips |
-| `GET` | `/api/users/trips/{id}` | Yes | Full itinerary detail |
-| `DELETE` | `/api/users/trips/{id}` | Yes | Delete a trip |
-| `GET` | `/api/users/sessions` | Yes | List chat sessions |
-| `DELETE` | `/api/users/sessions/{id}` | Yes | Delete a session and its trips |
+**Health, cache, observability** (`api/main.py`)
+- `GET /` (liveness), `GET /health` (deep DB check)
+- `GET /api/cache/stats`, `GET /api/cache/inspect/{destination}`, `GET /api/cache/test-similarity`
+- `POST /api/cache/clear-stale`, `POST /api/users/prune-tokens` (API-key gated)
+- `GET /api/metrics`, `GET /api/debug/logs` (API-key gated)
 
-### Cache & Observability
+Every response carries `X-Request-ID` and `X-Response-Time-Ms` headers.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/` | No | Liveness probe |
-| `GET` | `/health` | No | Deep health check (DB connectivity) |
-| `GET` | `/api/cache/stats` | No | Cache performance metrics |
-| `GET` | `/api/cache/inspect/{destination}` | No | Detailed cache entries |
-| `POST` | `/api/cache/clear-stale` | Yes | Remove old cache entries |
-| `GET` | `/api/cache/test-similarity` | No | Test embedding similarity |
-| `GET` | `/api/metrics` | Yes | Aggregate request metrics |
-| `GET` | `/api/debug/logs` | Yes | Recent application logs |
-
-Every response includes `X-Request-ID` and `X-Response-Time-Ms` headers for tracing.
-
-### Examples
+### Example
 
 ```bash
-# Anonymous chat
+# Anonymous, non-streaming
 curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Plan a 3-day trip to Paris on a medium budget"}'
-
-# Register, then chat as that user
-curl -X POST http://localhost:8000/api/users/register \
-  -H "Content-Type: application/json" \
-  -d '{"email": "me@example.com", "username": "me", "password": "secret123"}'
-
-curl -X POST http://localhost:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <token>" \
-  -d '{"message": "Plan a romantic week in Rome"}'
 ```
 
-## Project Structure
+## Project structure
 
 ```
 travel-companion/
 ├── api/
-│   ├── main.py              # FastAPI app, middleware, cache/metrics endpoints
-│   ├── chat.py              # Chat + streaming endpoints (DB-persisted)
-│   ├── auth.py              # JWT utilities, password hashing, auth dependencies
-│   └── users.py             # Register, login, preferences, trips, sessions
+│   ├── main.py          # FastAPI app, middleware, cache/metrics/health endpoints
+│   ├── chat.py          # chat + SSE streaming + keep-variant (DB-persisted)
+│   ├── auth.py          # JWT utilities, password hashing, auth dependencies
+│   ├── authz.py         # trip/session access rules (owner / member roles)
+│   ├── users.py         # register, login, account, preferences, trips, sessions, members
+│   ├── export.py        # PDF export
+│   ├── share.py         # public read-only share links
+│   ├── feedback.py      # ratings + free-text feedback
+│   └── signals.py       # client-reported interaction signals
 ├── core/
-│   ├── graph.py             # LangGraph workflow wiring
-│   ├── state.py             # AgentState TypedDict
-│   ├── orchestrator.py      # TravelOrchestrator (invoke + stream)
-│   ├── llm.py               # Hybrid role-based LLM factory (OpenAI + Gemini)
-│   ├── schemas.py           # Pydantic models
-│   ├── tools.py             # LangChain tools (geocode, distance, zones, routes)
-│   ├── logistics.py         # Async geocoding + zone assignment
-│   ├── semantic_cache.py    # pgvector semantic cache + RAG
-│   ├── database.py          # SQLAlchemy models + connection pooling
-│   ├── logger.py            # Loguru configuration
-│   └── nodes/
-│       ├── interviewer.py   # Conversation + preference extraction
-│       ├── research.py      # Food / activity / hotel research (config-driven)
-│       ├── compiler.py      # Itinerary writing + route optimization
-│       └── critic.py        # Quality review + scoring
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx          # Main chat application
-│   │   ├── hooks/useChat.js # SSE streaming hook
-│   │   └── components/      # Header, Welcome, Message, InputBar, StatusBar
-│   ├── Dockerfile
-│   └── package.json
-├── .github/workflows/ci.yml # Lint + smoke tests
+│   ├── graph.py         # LangGraph wiring (main graph + compiler-only variant graph)
+│   ├── orchestrator.py  # TravelOrchestrator: invoke + stream, A/B compare
+│   ├── state.py         # AgentState TypedDict
+│   ├── llm.py           # role-based LLM factory (OpenAI + flag-gated Gemini)
+│   ├── nodes/
+│   │   ├── interviewer.py  # extraction + deterministic slot-filling gate
+│   │   ├── research.py     # food / activity / hotel research (config-driven)
+│   │   ├── compiler.py     # itinerary writing + map geo payload
+│   │   └── critic.py       # quality review + scoring
+│   ├── logistics.py     # async geocoding + zone assignment / routing
+│   ├── geo.py           # geocoding + distance helpers
+│   ├── semantic_cache.py# pgvector semantic cache
+│   ├── signals.py / signal_store.py  # implicit-signal scoring + persistence
+│   ├── tokens.py / email.py          # auth-token lifecycle + transactional email
+│   ├── pdf.py           # server-side HTML-to-PDF
+│   ├── database.py      # SQLAlchemy models + connection pooling
+│   └── …                # schemas, validation, history, ratelimit, logger
+├── frontend/            # React 19 + Vite app (see frontend/ for its own layout)
+├── migrations/          # Alembic migrations (baseline + feature migrations)
+├── docs/                # how-it-works docs with diagrams
+├── docker-compose.yml   # Postgres + backend + frontend
 ├── Dockerfile
-├── docker-compose.yml       # App + DB + Frontend
+├── DEPLOYMENT.md        # production runbook
+├── PRIVACY.md
 ├── requirements.txt
-├── .env.example
-├── init_db.py
-├── run_api.py
-├── cli.py                   # Rich terminal interface
-└── test_smoke.py            # Import + unit smoke tests
+├── init_db.py / run_api.py / cli.py
+└── test_smoke.py
 ```
 
-## Development
-
-### Running Tests
+## Tests
 
 ```bash
-# Smoke tests (no DB/API required)
+# Backend unit tests. The default run excludes integration tests
+# (addopts = -m 'not integration' in pyproject.toml), so it needs no DB or API keys.
+pytest
+
+# Integration tests (need live API keys / a database):
+pytest -m integration
+
+# Import + route smoke check:
 python test_smoke.py
 
-# Full test suite
-pytest
+# Frontend tests (vitest):
+npm --prefix frontend test
 ```
 
-### Continuous Integration
+`eslint` is configured in `frontend/package.json` but is currently broken, so linting the frontend
+is skipped; CI does not run it.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests:
-black, ruff, isort, and the smoke suite. Tool versions are pinned to match
-`.pre-commit-config.yaml` so local hooks and CI never disagree.
+## Continuous integration
 
-### Code Quality
+`.github/workflows/ci.yml` runs on every push to `main` and on pull requests:
 
-The project uses Black (line-length 120), Ruff, isort, and mypy, all configured in
-`pyproject.toml` and enforced via pre-commit hooks.
+- **Backend:** black, ruff, and isort checks; `test_smoke.py`; then `pytest` (integration tests
+  excluded). Lint tool versions are pinned to match `.pre-commit-config.yaml`.
+- **Frontend:** `npm test` (vitest).
 
 ## Security
 
-- **Authentication**: JWT-based user accounts (bcrypt-hashed passwords); optional `X-API-Key` for admin endpoints
-- **Rate Limiting**: Per-IP sliding window, configurable
-- **CORS**: Explicit origin allowlist (no wildcards)
-- **Input Validation**: Message length limits via Pydantic
-- **Error Handling**: Internal errors are logged but never exposed to clients
-- **Health Checks**: `/health` verifies DB connectivity (returns 503 if down)
+- JWT auth with bcrypt-hashed passwords; production refuses to boot on a default `JWT_SECRET_KEY`.
+- Email-verification and password-reset tokens are stored only as SHA-256 hashes, single-use and
+  expiring.
+- Per-IP sliding-window rate limiting; explicit CORS origin allowlist (no wildcards).
+- Pydantic input validation and length caps on user-supplied payloads.
+- Internal errors are logged, not surfaced to clients.
+- Trip/session edit access is gated before any session is created or mutated.
 
 ## License
 
-MIT License
+MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-Developed as part of the **Mentor the Young** program, focusing on practical application of AI agent systems and backend engineering principles.
+Built as part of the Mentor the Young program, as practice in AI agent systems and full-stack
+engineering.
