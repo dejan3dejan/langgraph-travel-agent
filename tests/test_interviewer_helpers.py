@@ -143,6 +143,26 @@ def test_no_origin_ask_when_declined_sentinel():
     assert _next_question(d, user_turns=1) is None
 
 
+def test_already_asked_soft_slot_is_skipped():
+    # ask-once: a soft slot we already asked is not re-asked even if still unanswered (origin the
+    # user ignored). We move on rather than nag.
+    d = {"destination": "Rome", "duration": "5 days", "needs_accommodation": True, "interests": "food"}
+    assert _next_question(d, user_turns=1, asked={"origin"}) is None
+
+
+def test_already_asked_skips_to_the_next_soft_slot():
+    d = {"destination": "Rome", "duration": "5 days", "needs_accommodation": None, "interests": "food"}
+    # accommodation already asked and still unknown -> skip it, fall through to origin
+    assert _next_question(d, user_turns=1, asked={"accommodation"}) == "origin"
+
+
+def test_asked_set_never_skips_a_hard_slot():
+    # destination/duration are mandatory; being "asked" does not let us plan without them
+    assert (
+        _next_question({"destination": "", "duration": "5 days"}, user_turns=1, asked={"destination"}) == "destination"
+    )
+
+
 def test_backstop_skips_origin():
     d = {"destination": "Rome", "duration": "5 days", "needs_accommodation": True, "interests": "food"}
     assert _next_question(d, user_turns=MAX_INTERVIEW_TURNS) is None

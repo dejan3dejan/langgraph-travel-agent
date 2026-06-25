@@ -25,6 +25,9 @@ logger = get_logger(__name__)
 # what we have, so the conversation can't drag on forever.
 MAX_INTERVIEW_TURNS = 6
 
+# Optional slots: asked at most once each (destination and duration are mandatory and not tracked).
+_SOFT_SLOTS = frozenset({"accommodation", "intent", "origin"})
+
 _EXTRACTION_PROMPT = """
 Extract the user's travel preferences from the conversation into structured form.
 
@@ -504,28 +507,33 @@ def _should_regenerate(messages: list[dict], latest_user: str) -> bool:
     return _plan_in_history(messages) and _wants_fresh_plan(latest_user)
 
 
-def _next_question(user_details: dict, user_turns: int, force_ready: bool = False) -> str | None:
+def _next_question(
+    user_details: dict, user_turns: int, force_ready: bool = False, asked: set[str] | None = None
+) -> str | None:
     """The next slot to ask for, or None when there's enough to plan. Pure; this is the anti-loop
     gate, decided in code, not by the LLM.
 
     destination and duration are always required, so we never silently plan without them. The soft
-    slots (accommodation, intent) are asked only while we're under the turn budget; past it we plan
-    and let _finalize_details fill them, so the interview always terminates. force_ready (the user
-    asked to start planning) skips the soft slots but never the hard ones.
+    slots (accommodation, intent, origin) are asked only while we're under the turn budget and only
+    once each: `asked` holds the soft slots already put to the user, so an unanswered one (e.g. an
+    ignored origin) is not nagged again. Past the budget we plan and let _finalize_details fill the
+    rest, so the interview always terminates. force_ready (the user asked to start planning) skips
+    the soft slots but never the hard ones.
     """
+    asked = asked or set()
     if not _has(user_details, "destination"):
         return "destination"
     if not _has(user_details, "duration"):
         return "duration"
     if force_ready or user_turns >= MAX_INTERVIEW_TURNS:
         return None
-    if user_details.get("needs_accommodation") is None:
+    if user_details.get("needs_accommodation") is None and "accommodation" not in asked:
         return "accommodation"
-    if _intent_vague(user_details):
+    if _intent_vague(user_details) and "intent" not in asked:
         return "intent"
     # Lowest priority, and naturally skipped for in-destination trips (start_location is already set
     # to the destination) or once the user has stated or declined an origin.
-    if _origin_pending(user_details):
+    if _origin_pending(user_details) and "origin" not in asked:
         return "origin"
     return None
 
@@ -692,21 +700,29 @@ async def interviewer_node(state: AgentState) -> dict:
     #    "regenerate" request plans immediately too (skip the soft slots and the confirm beat).
     regenerating = _should_regenerate(messages, latest_user)
     force_ready = _ready_signal(latest_user) or _wants_fresh_plan(latest_user)
-    question = _next_question(user_details, user_turns, force_ready=force_ready)
+    # Soft slots already put to the user, so we ask each at most once (no nagging an ignored origin).
+    asked = set(state.get("asked_slots") or [])
+    question = _next_question(user_details, user_turns, force_ready=force_ready, asked=asked)
     if question is not None:
-        # Carry the merged slots out so they persist for the next turn (durable slot state).
-        return {**await _ask_for(question, user_details, messages, t0), "user_details": user_details}
+        if question in _SOFT_SLOTS:
+            asked = asked | {question}
+        # Carry the merged slots and the asked set out so they persist for the next turn.
+        return {
+            **await _ask_for(question, user_details, messages, t0),
+            "user_details": user_details,
+            "asked_slots": sorted(asked),
+        }
 
     # Sanity-gate the request before spending a research+compile pipeline on it: hard length bounds,
     # then a conservative feasibility check. Either one keeps us in the interview to clarify.
     problem = await _validate_request(user_details, latest_user)
     if problem:
-        return {**await _ask_to_fix(messages, problem, t0), "user_details": user_details}
+        return {**await _ask_to_fix(messages, problem, t0), "user_details": user_details, "asked_slots": sorted(asked)}
 
     # Let the interview breathe: one "anything else?" beat (allergies, pace, must-sees) before
     # planning, unless the user already signalled they're ready, we've asked it, or the budget is up.
     if not force_ready and not _confirm_asked(messages) and user_turns < MAX_INTERVIEW_TURNS:
-        return {**await _ask_confirm(messages, t0), "user_details": user_details}
+        return {**await _ask_confirm(messages, t0), "user_details": user_details, "asked_slots": sorted(asked)}
 
     user_details = _finalize_details(user_details)
     season_suggestion = _compute_season_suggestion(user_details)
@@ -727,6 +743,7 @@ async def interviewer_node(state: AgentState) -> dict:
             "draft_itinerary": None,
             "iteration_count": 0,
             "next_node": "research",
+            "asked_slots": [],
             "messages": [
                 {"role": "model", "content": f"Changing plans to {new_dest}! Let me research that for you..."}
             ],
@@ -739,5 +756,6 @@ async def interviewer_node(state: AgentState) -> dict:
         "regenerate": regenerating,
         "base_itinerary": _latest_itinerary(messages) if regenerating else None,
         "next_node": "research",
+        "asked_slots": [],
         "debug_logs": [log],
     }

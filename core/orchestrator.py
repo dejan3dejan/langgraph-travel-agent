@@ -59,6 +59,7 @@ class TravelOrchestrator:
         user_prefs: dict[str, Any] | None = None,
         learned_context: str | None = None,
         prior_user_details: dict[str, Any] | None = None,
+        prior_asked_slots: list[str] | None = None,
     ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool, bool, bool]:
         """Standard invocation of the LangGraph workflow."""
         updated_history = list(history)
@@ -68,6 +69,7 @@ class TravelOrchestrator:
             "messages": bound_history(updated_history),
             "user_turn_count": sum(1 for m in updated_history if m.get("role") == "user"),
             "user_details": prior_user_details,
+            "asked_slots": prior_asked_slots or [],
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
             "learned_context": learned_context,
@@ -130,6 +132,8 @@ class TravelOrchestrator:
                 if isinstance(out, dict):
                     if out.get("user_details"):
                         capture["user_details"] = out["user_details"]
+                    if out.get("asked_slots") is not None:
+                        capture["asked_slots"] = out["asked_slots"]
                     if out.get("season_suggestion") is not None:
                         capture["season_suggestion"] = out["season_suggestion"]
                     if out.get("is_edit"):
@@ -200,6 +204,7 @@ class TravelOrchestrator:
         compare: bool = False,
         learned_context: str | None = None,
         prior_user_details: dict[str, Any] | None = None,
+        prior_asked_slots: list[str] | None = None,
     ):
         """Asynchronous generator that yields clean dict events from LangGraph. With compare=True a
         freshly produced plan streams two diversified variants (A then B): every event is tagged with
@@ -211,6 +216,7 @@ class TravelOrchestrator:
             "messages": bound_history(updated_history),
             "user_turn_count": sum(1 for m in updated_history if m.get("role") == "user"),
             "user_details": prior_user_details,
+            "asked_slots": prior_asked_slots or [],
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
             "learned_context": learned_context,
@@ -231,6 +237,7 @@ class TravelOrchestrator:
                 "type": "end",
                 "is_itinerary": produced_a,
                 "user_details": capture_a.get("user_details", {}),
+                "asked_slots": capture_a.get("asked_slots"),
                 "is_edit": is_edit_a,
                 "regenerate": capture_a.get("regenerate", False),
                 "edit_summary": capture_a.get("edit_summary", ""),

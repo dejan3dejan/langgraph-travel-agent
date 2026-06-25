@@ -32,6 +32,10 @@ class AgentState(TypedDict):
     # and would otherwise undercount and never reach the turn budget.
     user_turn_count: int
 
+    # Soft slots already put to the user (persisted across turns), so each optional question is
+    # asked at most once and an ignored one is not re-asked.
+    asked_slots: list[str]
+
     # Itinerary edit flow: a post-plan modification carries the prior plan and the change
     # instruction to the compiler, which revises in place instead of re-researching.
     edit_instruction: str | None

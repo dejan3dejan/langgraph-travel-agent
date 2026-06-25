@@ -188,6 +188,29 @@ async def test_node_does_not_reask_a_slot_the_prior_turn_filled(monkeypatch):
     assert result["user_details"]["duration"] == "3 days"
 
 
+async def test_node_asks_a_soft_slot_at_most_once(monkeypatch):
+    # An ignored soft slot (origin) is asked once and recorded; the next turn skips it instead of
+    # nagging, even though it is still unanswered.
+    asked_keys = []
+
+    async def _spy_ask(question_key, user_details, messages, t0):
+        asked_keys.append(question_key)
+        return {"messages": [{"role": "model", "content": "q"}], "next_node": "interviewer", "debug_logs": []}
+
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready(start_location="")))
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
+    monkeypatch.setattr(iv, "_ask_for", _spy_ask)
+    messages = [{"role": "user", "content": "Paris 3 days, food"}]
+
+    r1 = await interviewer_node({"messages": messages, "user_turn_count": 1})
+    assert asked_keys == ["origin"] and "origin" in r1["asked_slots"]
+
+    asked_keys.clear()
+    r2 = await interviewer_node({"messages": messages, "user_turn_count": 2, "asked_slots": r1["asked_slots"]})
+    assert "origin" not in asked_keys  # not re-asked
+    assert r2["next_node"] == "interviewer"  # moved on to the confirm beat, not the origin question
+
+
 async def test_node_regenerate_replans_fresh_instead_of_editing(monkeypatch):
     # "regenerate the plan" on an existing plan must re-run the pipeline (fresh full plan), not route
     # to the post-plan edit/follow-up path that can degrade off a brief base.

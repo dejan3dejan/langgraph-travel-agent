@@ -124,7 +124,7 @@ def _new_variant_buckets() -> dict:
 
 def _new_variant_meta() -> dict:
     """Variant-A metadata captured from its end event, used to persist (or stage) after the stream."""
-    return {"is_itinerary": False, "is_edit": False, "regenerate": False, "user_details": {}}
+    return {"is_itinerary": False, "is_edit": False, "regenerate": False, "user_details": {}, "asked_slots": None}
 
 
 def _record_plan_signal(session_id: str, user: User | None, meta: dict, user_text: str) -> None:
@@ -164,6 +164,7 @@ def _apply_stream_event(variants: dict, meta: dict, event: dict) -> None:
             meta["is_edit"] = event.get("is_edit", False)
             meta["regenerate"] = event.get("regenerate", False)
             meta["user_details"] = event.get("user_details", {})
+            meta["asked_slots"] = event.get("asked_slots")
 
 
 def _should_stage(variants: dict) -> bool:
@@ -286,6 +287,9 @@ def _persist_single_turn(
         # Persist the merged slots so the next turn seeds them and never re-asks an answered one.
         if meta.get("user_details"):
             active.data["user_details"] = meta["user_details"]
+        # Persist which soft slots were already asked, so each is put to the user at most once.
+        if meta.get("asked_slots") is not None:
+            active.data["asked_slots"] = meta["asked_slots"]
         flag_modified(active, "data")
         if meta.get("is_itinerary"):
             _upsert_trip(
@@ -397,6 +401,7 @@ async def chat_stream(
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
     prior_user_details = db_session.data.get("user_details")
+    prior_asked_slots = db_session.data.get("asked_slots")
     user_text = chat_message.message.strip()
     prefs = _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
     learned = planning_context(db, user.id if user else None, session_id, prefs)
@@ -422,6 +427,7 @@ async def chat_stream(
                 compare=chat_message.compare,
                 learned_context=learned,
                 prior_user_details=prior_user_details,
+                prior_asked_slots=prior_asked_slots,
             ):
                 _apply_stream_event(variants, meta, event)
                 yield f"data: {json.dumps(event)}\n\n"
