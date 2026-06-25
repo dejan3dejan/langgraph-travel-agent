@@ -34,8 +34,8 @@ will time out long plans. The static frontend on Vercel is fine; the backend is 
 
 | Variable            | Required | Notes |
 |---------------------|----------|-------|
-| `OPENAI_API_KEY`    | yes      | Primary LLM + embeddings provider. |
-| `GEMINI_API_KEY`    | yes      | Fallback LLM provider. |
+| `OPENAI_API_KEY`    | yes      | Primary LLM + embeddings provider. The only LLM key required while `USE_GEMINI=False` (the current default in `core/llm.py`). |
+| `GEMINI_API_KEY`    | if hybrid | Fallback LLM provider for research/extraction/critic. Needed only when `USE_GEMINI=True`; unused in the current OpenAI-only mode. |
 | `ENVIRONMENT`       | yes      | Set to `production`. This makes the app refuse to start unless `JWT_SECRET_KEY` is a real value, so a host can't accidentally boot with the forgeable default. Defaults to `development`. |
 | `JWT_SECRET_KEY`    | yes      | Real secret in production. Generate: `python -c "import secrets; print(secrets.token_hex(32))"`. Do not ship the `change-this-in-production` placeholder; with `ENVIRONMENT=production` the app will not start if you do. |
 | `JWT_EXPIRE_MINUTES`| no       | Token lifetime; defaults to 1440 (24h). |
