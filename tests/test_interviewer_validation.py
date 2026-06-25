@@ -3,7 +3,7 @@ with a clarification instead of reaching research. The feasibility LLM call is s
 """
 
 from core.nodes import interviewer as iv
-from core.nodes.interviewer import _validate_request, interviewer_node
+from core.nodes.interviewer import MAX_INTERVIEW_TURNS, _validate_request, interviewer_node
 from core.schemas import TripFeasibility, UserPreferences
 
 
@@ -147,6 +147,21 @@ async def test_node_honors_plan_it_now(monkeypatch):
     monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready()))
     monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
     result = await interviewer_node({"messages": [{"role": "user", "content": "plan it now"}]})
+    assert result["next_node"] == "research"
+
+
+async def test_node_plans_at_turn_budget_even_with_short_window(monkeypatch):
+    # The loop bug: user_turns was counted from the TRIMMED replay window, so the backstop never
+    # fired and a never-answered soft slot (here origin) was re-asked forever. The true count is
+    # threaded in as user_turn_count; past the budget the node plans instead of re-asking.
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready(start_location="")))
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
+    messages = [
+        {"role": "user", "content": "Paris 3 days, into food"},
+        {"role": "model", "content": "Where will you be travelling from? (you can skip this)"},
+        {"role": "user", "content": "anyway"},
+    ]
+    result = await interviewer_node({"messages": messages, "user_turn_count": MAX_INTERVIEW_TURNS})
     assert result["next_node"] == "research"
 
 

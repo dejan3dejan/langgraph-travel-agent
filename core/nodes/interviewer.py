@@ -607,7 +607,9 @@ async def _validate_request(user_details: dict, request_text: str) -> str | None
 async def interviewer_node(state: AgentState) -> dict:
     t0 = time.time()
     messages = state.get("messages", [])
-    user_turns = sum(1 for m in messages if m.get("role") == "user")
+    # The true turn count comes from the orchestrator (full history); fall back to counting the
+    # replayed window only when it is absent (variant runs, direct unit calls).
+    user_turns = state.get("user_turn_count") or sum(1 for m in messages if m.get("role") == "user")
 
     # 1. Extract the currently-known slots from the whole conversation, every turn.
     structured_llm = get_llm_for_role("extraction").with_structured_output(UserPreferences)

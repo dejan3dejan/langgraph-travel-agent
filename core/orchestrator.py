@@ -65,6 +65,7 @@ class TravelOrchestrator:
 
         inputs = {
             "messages": bound_history(updated_history),
+            "user_turn_count": sum(1 for m in updated_history if m.get("role") == "user"),
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
             "learned_context": learned_context,
@@ -205,6 +206,7 @@ class TravelOrchestrator:
 
         inputs = {
             "messages": bound_history(updated_history),
+            "user_turn_count": sum(1 for m in updated_history if m.get("role") == "user"),
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
             "learned_context": learned_context,

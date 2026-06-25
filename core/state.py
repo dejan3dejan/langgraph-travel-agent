@@ -27,6 +27,11 @@ class AgentState(TypedDict):
     iteration_count: int
     next_node: str
 
+    # True count of user turns over the FULL conversation (set by the orchestrator before any
+    # history trimming). The interview backstop reads this, since the replayed window is trimmed
+    # and would otherwise undercount and never reach the turn budget.
+    user_turn_count: int
+
     # Itinerary edit flow: a post-plan modification carries the prior plan and the change
     # instruction to the compiler, which revises in place instead of re-researching.
     edit_instruction: str | None
