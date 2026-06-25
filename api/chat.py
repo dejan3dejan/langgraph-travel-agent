@@ -283,6 +283,9 @@ def _persist_single_turn(
         new_history.append({"role": "user", "content": user_text})
         new_history.append({"role": "model", "content": bucket["text"]})
         active.data["history"] = new_history
+        # Persist the merged slots so the next turn seeds them and never re-asks an answered one.
+        if meta.get("user_details"):
+            active.data["user_details"] = meta["user_details"]
         flag_modified(active, "data")
         if meta.get("is_itinerary"):
             _upsert_trip(
@@ -319,6 +322,8 @@ def _stage_pending_variants(session_id: str, variants: dict, user_details: dict,
             "user_details": user_details,
             "message": user_text,
         }
+        if user_details:
+            active.data["user_details"] = user_details
         flag_modified(active, "data")
         persist_db.commit()
         logger.info(f"Staged two itinerary variants for session {session_id}")
@@ -338,16 +343,19 @@ async def chat(
     _ensure_can_edit(db, chat_message.session_id, user)
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
+    prior_user_details = db_session.data.get("user_details")
     user_text = chat_message.message.strip()
     prefs = _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
     learned = planning_context(db, user.id if user else None, session_id, prefs)
 
     try:
         response_text, updated_history, _, user_details, is_itinerary, is_edit, regenerate = await orchestrator.chat(
-            user_text, history, prefs, learned_context=learned
+            user_text, history, prefs, learned_context=learned, prior_user_details=prior_user_details
         )
 
         db_session.data["history"] = updated_history
+        if user_details:
+            db_session.data["user_details"] = user_details
         if not db_session.title or db_session.title == "New Chat":
             db_session.title = user_text[:60]
         flag_modified(db_session, "data")
@@ -388,6 +396,7 @@ async def chat_stream(
     _ensure_can_edit(db, chat_message.session_id, user)
     session_id, db_session = get_or_create_session(db, chat_message.session_id, user)
     history = db_session.data.get("history", [])
+    prior_user_details = db_session.data.get("user_details")
     user_text = chat_message.message.strip()
     prefs = _resolve_prefs(_seeded_prefs(db, user), chat_message.client_prefs)
     learned = planning_context(db, user.id if user else None, session_id, prefs)
@@ -407,7 +416,12 @@ async def chat_stream(
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
 
             async for event in orchestrator.stream_chat(
-                user_text, history, prefs, compare=chat_message.compare, learned_context=learned
+                user_text,
+                history,
+                prefs,
+                compare=chat_message.compare,
+                learned_context=learned,
+                prior_user_details=prior_user_details,
             ):
                 _apply_stream_event(variants, meta, event)
                 yield f"data: {json.dumps(event)}\n\n"

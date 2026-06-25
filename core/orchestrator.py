@@ -58,6 +58,7 @@ class TravelOrchestrator:
         history: list[dict[str, str]],
         user_prefs: dict[str, Any] | None = None,
         learned_context: str | None = None,
+        prior_user_details: dict[str, Any] | None = None,
     ) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any], bool, bool, bool]:
         """Standard invocation of the LangGraph workflow."""
         updated_history = list(history)
@@ -66,6 +67,7 @@ class TravelOrchestrator:
         inputs = {
             "messages": bound_history(updated_history),
             "user_turn_count": sum(1 for m in updated_history if m.get("role") == "user"),
+            "user_details": prior_user_details,
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
             "learned_context": learned_context,
@@ -197,6 +199,7 @@ class TravelOrchestrator:
         user_prefs: dict[str, Any] | None = None,
         compare: bool = False,
         learned_context: str | None = None,
+        prior_user_details: dict[str, Any] | None = None,
     ):
         """Asynchronous generator that yields clean dict events from LangGraph. With compare=True a
         freshly produced plan streams two diversified variants (A then B): every event is tagged with
@@ -207,6 +210,7 @@ class TravelOrchestrator:
         inputs = {
             "messages": bound_history(updated_history),
             "user_turn_count": sum(1 for m in updated_history if m.get("role") == "user"),
+            "user_details": prior_user_details,
             "iteration_count": 0,
             "seeded_prefs": user_prefs,
             "learned_context": learned_context,

@@ -165,6 +165,29 @@ async def test_node_plans_at_turn_budget_even_with_short_window(monkeypatch):
     assert result["next_node"] == "research"
 
 
+async def test_node_does_not_reask_a_slot_the_prior_turn_filled(monkeypatch):
+    # Durable slots: the prior turn captured the duration, this turn's extraction drops it. The merge
+    # must restore it so the gate never re-asks something already answered.
+    asked = []
+
+    async def _spy_ask(question_key, user_details, messages, t0):
+        asked.append(question_key)
+        return {"messages": [{"role": "model", "content": "q"}], "next_node": "interviewer", "debug_logs": []}
+
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready(duration="")))
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
+    monkeypatch.setattr(iv, "_ask_for", _spy_ask)
+    prior = _ready().model_dump()  # a complete profile from earlier turns, including the duration
+    messages = [
+        {"role": "user", "content": "3 day trip to Paris"},
+        {"role": "model", "content": "what are you in the mood for?"},
+        {"role": "user", "content": "food"},
+    ]
+    result = await interviewer_node({"messages": messages, "user_details": prior})
+    assert "duration" not in asked  # restored by the merge, never re-asked
+    assert result["user_details"]["duration"] == "3 days"
+
+
 async def test_node_regenerate_replans_fresh_instead_of_editing(monkeypatch):
     # "regenerate the plan" on an existing plan must re-run the pipeline (fresh full plan), not route
     # to the post-plan edit/follow-up path that can degrade off a brief base.

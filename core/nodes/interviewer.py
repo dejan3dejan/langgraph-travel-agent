@@ -382,6 +382,32 @@ async def _ask_to_fix(messages: list[dict], problem: str, t0: float) -> dict:
     }
 
 
+def _slot_empty(value) -> bool:
+    """A slot carries no answer: None, a blank string, or an empty list/dict. False is a real
+    tri-state answer (e.g. needs_accommodation), so it is NOT empty."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, list | dict):
+        return len(value) == 0
+    return False
+
+
+def _merge_user_details(prior: dict | None, fresh: dict) -> dict:
+    """Merge freshly-extracted slots over the prior turn's, so a slot answered earlier survives an
+    extraction that drops it. A non-empty fresh value always wins (a genuine change or correction);
+    an empty fresh value falls back to the prior non-empty one. This is what keeps the interview
+    from re-asking something the user already answered (the duration/origin re-ask bug)."""
+    if not prior:
+        return fresh
+    merged = dict(fresh)
+    for key, prior_value in prior.items():
+        if _slot_empty(merged.get(key)) and not _slot_empty(prior_value):
+            merged[key] = prior_value
+    return merged
+
+
 def _has(user_details: dict, key: str) -> bool:
     return bool((user_details.get(key) or "").strip())
 
@@ -627,7 +653,9 @@ async def interviewer_node(state: AgentState) -> dict:
         prefs = await structured_llm.ainvoke(
             [SystemMessage(content=extraction_prompt), HumanMessage(content=str(messages))]
         )
-        user_details = prefs.model_dump()
+        # Merge over the prior turn's slots so a slot answered earlier survives an extraction that
+        # drops it; a non-empty fresh value (a change/correction) still wins.
+        user_details = _merge_user_details(state.get("user_details"), prefs.model_dump())
     except Exception as e:
         # Fail loud: don't fabricate a trip. Ask the user to rephrase and stay put.
         logger.error(f"Extraction failed, asking the user to rephrase: {e}")
@@ -666,18 +694,19 @@ async def interviewer_node(state: AgentState) -> dict:
     force_ready = _ready_signal(latest_user) or _wants_fresh_plan(latest_user)
     question = _next_question(user_details, user_turns, force_ready=force_ready)
     if question is not None:
-        return await _ask_for(question, user_details, messages, t0)
+        # Carry the merged slots out so they persist for the next turn (durable slot state).
+        return {**await _ask_for(question, user_details, messages, t0), "user_details": user_details}
 
     # Sanity-gate the request before spending a research+compile pipeline on it: hard length bounds,
     # then a conservative feasibility check. Either one keeps us in the interview to clarify.
     problem = await _validate_request(user_details, latest_user)
     if problem:
-        return await _ask_to_fix(messages, problem, t0)
+        return {**await _ask_to_fix(messages, problem, t0), "user_details": user_details}
 
     # Let the interview breathe: one "anything else?" beat (allergies, pace, must-sees) before
     # planning, unless the user already signalled they're ready, we've asked it, or the budget is up.
     if not force_ready and not _confirm_asked(messages) and user_turns < MAX_INTERVIEW_TURNS:
-        return await _ask_confirm(messages, t0)
+        return {**await _ask_confirm(messages, t0), "user_details": user_details}
 
     user_details = _finalize_details(user_details)
     season_suggestion = _compute_season_suggestion(user_details)

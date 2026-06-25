@@ -15,6 +15,7 @@ from core.nodes.interviewer import (
     _is_ready,
     _latest_itinerary,
     _latest_user_message,
+    _merge_user_details,
     _next_question,
     _plan_in_history,
     _post_plan_action,
@@ -255,6 +256,46 @@ def test_finalize_prepends_primary_to_destinations():
 def test_finalize_single_destination_leaves_list_empty():
     out = _finalize_details({"destination": "Rome", "duration": "3 days", "destinations": []})
     assert out["destinations"] == []
+
+
+# durable slot merge: a slot answered once must not be re-opened by a later extraction miss
+
+
+def test_merge_returns_fresh_when_no_prior():
+    fresh = {"destination": "Rome", "duration": "5 days"}
+    assert _merge_user_details(None, fresh) == fresh
+
+
+def test_merge_keeps_prior_slot_when_fresh_drops_it():
+    # the reported bug: the user gave the duration, a later turn's extraction missed it, and it got
+    # re-asked. The merge must retain the prior non-empty value.
+    prior = {"destination": "Rome", "duration": "5 days"}
+    fresh = {"destination": "Rome", "duration": ""}
+    assert _merge_user_details(prior, fresh)["duration"] == "5 days"
+
+
+def test_merge_lets_a_real_change_win():
+    # a genuine change (non-empty fresh) overrides the prior value
+    prior = {"destination": "Rome", "duration": "5 days"}
+    fresh = {"destination": "Tokyo", "duration": "5 days"}
+    assert _merge_user_details(prior, fresh)["destination"] == "Tokyo"
+
+
+def test_merge_treats_accommodation_false_as_a_real_signal():
+    # needs_accommodation is tri-state: False is an answer (wins), None is "no signal" (keep prior)
+    assert (
+        _merge_user_details({"needs_accommodation": None}, {"needs_accommodation": False})["needs_accommodation"]
+        is False
+    )
+    assert (
+        _merge_user_details({"needs_accommodation": True}, {"needs_accommodation": None})["needs_accommodation"] is True
+    )
+
+
+def test_merge_keeps_prior_list_when_fresh_empty():
+    prior = {"preferred_areas": ["Trastevere"]}
+    fresh = {"preferred_areas": []}
+    assert _merge_user_details(prior, fresh)["preferred_areas"] == ["Trastevere"]
 
 
 # post-plan detection
