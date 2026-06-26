@@ -1,8 +1,10 @@
 """Unit tests for research helper functions — pure, no API/DB."""
 
+from core.nodes import research as research_mod
 from core.nodes.research import (
     _build_search_prompt,
     _build_search_query,
+    _filter_to_destination,
     _get_activity_focus,
     _get_destinations,
     _local_focus_block,
@@ -10,6 +12,7 @@ from core.nodes.research import (
     _should_refresh,
     _wants_local,
 )
+from core.schemas import Restaurant
 
 
 def test_build_search_query_restaurants():
@@ -140,3 +143,61 @@ def test_local_focus_block_present_only_when_expressed():
     low = block.lower()
     assert "local" in low and "tourist" in low
     assert "Trastevere" in block
+
+
+# geocode hallucination filter: drop places that fail to geocode or land outside the destination
+
+
+def _restaurant(name, address):
+    return Restaurant(name=name, address=address, cuisine="bistro", price_level="$$", rating=4.5, reason="fits")
+
+
+# Paris centroid plus a real in-city address, a fabricated address that geocodes to Rome, and one
+# that does not geocode at all.
+_FAKE_GEO = {
+    "Paris": (48.8566, 2.3522, "exact"),
+    "10 Rue de Rivoli, Paris": (48.8566, 2.3505, "exact"),
+    "999 Imaginary Plaza, Paris": (41.9028, 12.4964, "exact"),
+    "0 Nonexistent St, Paris": (None, None, "failed"),
+}
+
+
+async def _fake_geocode(address, neighborhood=None, city=None, retries=1, stats=None):
+    return _FAKE_GEO.get(address, (None, None, "failed"))
+
+
+def _sample_places():
+    return [
+        _restaurant("Real Bistro", "10 Rue de Rivoli, Paris"),
+        _restaurant("Hallucinated Grill", "999 Imaginary Plaza, Paris"),
+        _restaurant("Phantom Cafe", "0 Nonexistent St, Paris"),
+    ]
+
+
+async def test_filter_drops_out_of_city_and_ungeocodable(monkeypatch):
+    monkeypatch.setattr(research_mod, "aget_coordinates", _fake_geocode)
+    kept, dropped = await _filter_to_destination("restaurants", "Paris", _sample_places())
+    assert [r.name for r in kept] == ["Real Bistro"]
+    assert dropped == 2
+    # Surviving places carry the coordinates resolved during filtering, so logistics need not refetch.
+    assert kept[0].lat == 48.8566 and kept[0].lon == 2.3505
+
+
+async def test_filter_keeps_all_when_centroid_geocode_fails(monkeypatch):
+    monkeypatch.setattr(research_mod, "aget_coordinates", _fake_geocode)
+    # "Atlantis" is absent from the fake map, so the centroid lookup fails and nothing is dropped.
+    places = _sample_places()
+    kept, dropped = await _filter_to_destination("restaurants", "Atlantis", places)
+    assert kept == places
+    assert dropped == 0
+
+
+async def test_filter_logs_drop_count(monkeypatch):
+    monkeypatch.setattr(research_mod, "aget_coordinates", _fake_geocode)
+    messages = []
+    sink_id = research_mod.logger.add(lambda m: messages.append(str(m)), level="INFO")
+    try:
+        await _filter_to_destination("restaurants", "Paris", _sample_places())
+    finally:
+        research_mod.logger.remove(sink_id)
+    assert any("dropped 2" in m for m in messages)

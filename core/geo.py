@@ -7,6 +7,25 @@ from typing import Any
 from .logistics import haversine_distance
 
 
+def is_within_destination(
+    place_lat: float | None,
+    place_lon: float | None,
+    center_lat: float | None,
+    center_lon: float | None,
+    radius_km: float,
+) -> bool:
+    """True when a place sits within radius_km of the destination centroid.
+
+    The hallucination filter uses this to drop a geocoded place that resolved to the wrong city.
+    Returns False if any coordinate is None. haversine_distance treats a 0 coord as missing and
+    returns 0.0, so a place sitting exactly on the equator/prime meridian reads as in-city; that
+    quirk is acceptable for a coarse city-radius gate.
+    """
+    if place_lat is None or place_lon is None or center_lat is None or center_lon is None:
+        return False
+    return haversine_distance(place_lat, place_lon, center_lat, center_lon) <= radius_km
+
+
 def optimize_day_route(places: list[dict[str, Any]], hotel_lat: float, hotel_lon: float) -> dict[str, Any]:
     """Order places for a single day via nearest-neighbor, starting and ending at the hotel."""
     if not places:

@@ -5,13 +5,20 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
+from ..geo import is_within_destination
 from ..llm import USE_GEMINI, get_llm_for_role
 from ..logger import get_logger
+from ..logistics import aget_coordinates
 from ..schemas import Activity, ActivityList, Hotel, HotelList, Restaurant, RestaurantList, render_constraints
 from ..semantic_cache import cache_research_results, semantic_search, should_use_cache
 from ..state import AgentState
 
 logger = get_logger(__name__)
+
+# Generous city radius for the geocode hallucination filter. Wide enough to keep legitimate
+# outlying suburbs and metro-area day trips, tight enough to drop a place that geocoded to the
+# wrong city or country.
+_CITY_RADIUS_KM = 40.0
 
 
 def _should_refresh(category: str, regenerate: bool) -> bool:
@@ -235,6 +242,33 @@ def _build_search_prompt(category: str, dest: str, details: dict) -> str:
     """
 
 
+async def _filter_to_destination(category: str, dest: str, data: list) -> tuple[list, int]:
+    """Drop hallucinated places by geocoding each against the destination centroid.
+
+    The research model runs ungrounded (USE_GEMINI is False), so it can invent plausible places
+    whose addresses geocode to the wrong city or nowhere at all. Resolve the centroid once, then
+    keep only places that geocode within a generous city radius; surviving places keep the
+    coordinates resolved here so logistics need not refetch them. If the centroid itself fails to
+    geocode we cannot judge distance, so keep everything rather than drop blindly. Returns
+    (surviving_places, dropped_count).
+    """
+    center_lat, center_lon, center_status = await aget_coordinates(dest)
+    if center_status == "failed":
+        logger.warning(f"[{dest}] Centroid geocode failed; skipping hallucination filter for {category}")
+        return data, 0
+
+    survivors = []
+    for place in data:
+        lat, lon, status = await aget_coordinates(place.address, getattr(place, "neighborhood", None), dest)
+        if is_within_destination(lat, lon, center_lat, center_lon, _CITY_RADIUS_KM):
+            place.lat, place.lon, place.geocoding_status = lat, lon, status
+            survivors.append(place)
+
+    dropped = len(data) - len(survivors)
+    logger.info(f"[{dest}] Geocode filter for {category}: kept {len(survivors)}, dropped {dropped}")
+    return survivors, dropped
+
+
 async def _research_for_dest(category: str, dest: str, details: dict, force_refresh: bool = False) -> list:
     """Generic research function — works for restaurants, activities, and hotels. On force_refresh
     (a regenerate) it skips the cache and searches live at a higher temperature for a fresh pool."""
@@ -284,6 +318,9 @@ async def _research_for_dest(category: str, dest: str, details: dict, force_refr
         ]
     )
     data = result.items
+
+    if data:
+        data, _ = await _filter_to_destination(category, dest, data)
 
     if data:
         data_dicts = [item.model_dump() for item in data]

@@ -1,9 +1,16 @@
 """Unit tests for the pure geo helpers — no I/O, no API, fully deterministic."""
 
-from core.geo import build_itinerary_geo, build_itinerary_geo_from_days, group_places_by_zone, optimize_day_route
+from core.geo import (
+    build_itinerary_geo,
+    build_itinerary_geo_from_days,
+    group_places_by_zone,
+    is_within_destination,
+    optimize_day_route,
+)
 from core.logistics import haversine_distance
 
 PARIS = (48.8566, 2.3522)
+ROME = (41.9028, 12.4964)
 
 
 def test_haversine_known_distance():
@@ -19,6 +26,26 @@ def test_haversine_identical_points_is_zero():
 def test_haversine_guard_returns_zero_on_missing_coord():
     # The all([...]) guard treats a 0/None coord as missing and returns 0.0.
     assert haversine_distance(0, 0, 0, 0) == 0.0
+
+
+# is_within_destination — the hallucination filter's pure distance gate
+
+
+def test_is_within_destination_in_city_is_true():
+    lat, lon = PARIS
+    # A spot ~3 km from the centre sits well inside a generous city radius.
+    assert is_within_destination(lat + 0.03, lon, lat, lon, 40) is True
+
+
+def test_is_within_destination_wrong_city_is_false():
+    # A Rome address judged against a Paris centroid is far outside any city radius.
+    assert is_within_destination(ROME[0], ROME[1], PARIS[0], PARIS[1], 40) is False
+
+
+def test_is_within_destination_missing_coords_is_false():
+    lat, lon = PARIS
+    assert is_within_destination(None, None, lat, lon, 40) is False
+    assert is_within_destination(lat, lon, None, None, 40) is False
 
 
 def test_group_places_by_zone_buckets_by_distance():
