@@ -8,6 +8,7 @@ stubbed; a live integration test against the real API is marked `integration`.
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from core import places
@@ -227,6 +228,101 @@ async def test_fetch_pois_caches_per_query(monkeypatch):
     second = await fetch_pois((48.86, 2.34), "restaurants")
     assert first == second
     assert calls["n"] == 1  # second lookup served from cache
+
+
+# _post_overpass retry/backoff against transient throttles, with the HTTP transport stubbed
+
+
+class _SeqPost:
+    """Stand in for httpx.AsyncClient.post, returning a scripted sequence of responses and counting
+    calls. Set as a class attribute it is not a descriptor, so it is invoked as post(url, **kwargs)
+    with no bound client."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = 0
+
+    async def __call__(self, url, **kwargs):
+        self.calls += 1
+        return self._responses.pop(0)
+
+
+@pytest.fixture
+def _no_rate_gap(monkeypatch):
+    # Neutralize the politeness gap so the only sleeps a test sees are the backoff waits, and make
+    # those instant while recording their durations.
+    places._last_call_monotonic = 0.0
+    sleeps: list[float] = []
+
+    async def _record(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(places.asyncio, "sleep", _record)
+    return sleeps
+
+
+async def test_post_overpass_retries_throttle_then_succeeds(monkeypatch, _no_rate_gap):
+    post = _SeqPost(
+        [
+            httpx.Response(429, headers={"Retry-After": "0"}),
+            httpx.Response(200, json={"elements": []}),
+        ]
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    out = await places._post_overpass("q")
+    assert out == {"elements": []}
+    assert post.calls == 2  # retried past the 429
+    assert _no_rate_gap  # backed off before retrying
+
+
+async def test_post_overpass_gives_up_after_retry_budget(monkeypatch, _no_rate_gap):
+    post = _SeqPost([httpx.Response(429, headers={"Retry-After": "0"})] * 10)
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    out = await places._post_overpass("q")
+    assert out is None  # exhausted: degrades to None, fetch_pois will not cache it
+    assert post.calls == places.MAX_OVERPASS_RETRIES + 1
+
+
+async def test_post_overpass_caps_retry_after(monkeypatch, _no_rate_gap):
+    # A hostile Retry-After must not stall a planning turn: the wait is capped.
+    post = _SeqPost(
+        [
+            httpx.Response(503, headers={"Retry-After": "999"}),
+            httpx.Response(200, json={"elements": []}),
+        ]
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    out = await places._post_overpass("q")
+    assert out == {"elements": []}
+    assert max(_no_rate_gap) <= places.RETRY_BACKOFF_CAP_SECONDS
+
+
+async def test_post_overpass_does_not_retry_non_retryable_status(monkeypatch, _no_rate_gap):
+    # A 400 is a bad query, not a transient blip: fail fast, no retry.
+    post = _SeqPost([httpx.Response(400, json={})])
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    out = await places._post_overpass("q")
+    assert out is None
+    assert post.calls == 1
+    assert _no_rate_gap == []  # never backed off
+
+
+async def test_post_overpass_retries_network_error(monkeypatch, _no_rate_gap):
+    # A timeout/network blip is transient too: retry, then succeed.
+    calls = {"n": 0}
+    payload = {"elements": []}
+
+    class _FlakyPost:
+        async def __call__(self, url, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise httpx.ConnectTimeout("boom")
+            return httpx.Response(200, json=payload)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _FlakyPost())
+    out = await places._post_overpass("q")
+    assert out == payload
+    assert calls["n"] == 2
 
 
 @pytest.mark.integration

@@ -34,6 +34,15 @@ DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 QUERY_TIMEOUT_SECONDS = 25
 CLIENT_TIMEOUT_SECONDS = 30.0
 
+# Overpass throttles a busy free endpoint with 429, and serves overload as 502/503/504. These are
+# transient, so retry them (and network/timeout blips) a bounded number of times with backoff. The
+# cap keeps a hostile or absent Retry-After from stalling a planning turn: worst-case added wait is
+# MAX_OVERPASS_RETRIES * RETRY_BACKOFF_CAP_SECONDS.
+RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+MAX_OVERPASS_RETRIES = 2
+RETRY_BACKOFF_BASE_SECONDS = 1.0
+RETRY_BACKOFF_CAP_SECONDS = 5.0
+
 # Politeness: Overpass is a shared free service. Serialize our calls and keep a minimum gap between
 # them (the Nominatim path in logistics.py sleeps similarly), and cache results so a repeated
 # (area, category) lookup never re-hits the API within a day.
@@ -195,30 +204,56 @@ async def _respect_rate_limit() -> None:
     _last_call_monotonic = time.monotonic()
 
 
-async def _post_overpass(query: str) -> dict | None:
-    """POST one query to Overpass. Returns the parsed JSON, or None on any network/HTTP/decoding
-    failure (logged). Failing to None lets fetch_pois degrade to [] without fabricating."""
-    async with _rate_lock:
-        await _respect_rate_limit()
-        try:
-            async with httpx.AsyncClient(timeout=CLIENT_TIMEOUT_SECONDS) as client:
-                resp = await client.post(
-                    _overpass_url(),
-                    data={"data": query},
-                    headers={"User-Agent": USER_AGENT},
-                )
-        except httpx.HTTPError as e:
-            logger.warning(f"Overpass request failed: {type(e).__name__}")
-            return None
-
-    if resp.status_code != 200:
-        logger.warning(f"Overpass returned status {resp.status_code}")
-        return None
+def _retry_after_seconds(resp: httpx.Response | None, attempt: int) -> float:
+    """How long to wait before the next attempt: honor a numeric Retry-After header when Overpass
+    sends one, else exponential backoff on the attempt number. Capped both ways so one slow or
+    hostile endpoint cannot stall a planning turn. Pure."""
+    header = resp.headers.get("Retry-After") if resp is not None else None
     try:
-        return resp.json()
+        wait = float(header) if header else RETRY_BACKOFF_BASE_SECONDS * (2**attempt)
     except ValueError:
-        logger.warning("Overpass returned a non-JSON body")
-        return None
+        # Retry-After can be an HTTP-date; Overpass uses seconds, so fall back to backoff on a date.
+        wait = RETRY_BACKOFF_BASE_SECONDS * (2**attempt)
+    return min(wait, RETRY_BACKOFF_CAP_SECONDS)
+
+
+async def _post_overpass(query: str) -> dict | None:
+    """POST one query to Overpass, retrying transient throttles/overload with bounded backoff.
+
+    Returns the parsed JSON, or None on a non-retryable error or once the retry budget is spent (all
+    logged). A 429/502/503/504 or a network/timeout error is retried up to MAX_OVERPASS_RETRIES
+    times, honoring a numeric Retry-After header when present and capped at RETRY_BACKOFF_CAP_SECONDS.
+    The whole loop holds _rate_lock, so a backoff pauses every concurrent fetch, not just this one
+    (the three research nodes run in parallel; backing off all of them is the polite response to a
+    throttle). Failing to None lets fetch_pois degrade to [] without fabricating, and fetch_pois does
+    not cache a None, so the next call retries fresh rather than suppressing a category for 24h."""
+    async with _rate_lock:
+        for attempt in range(MAX_OVERPASS_RETRIES + 1):
+            await _respect_rate_limit()
+            resp = None
+            try:
+                async with httpx.AsyncClient(timeout=CLIENT_TIMEOUT_SECONDS) as client:
+                    resp = await client.post(
+                        _overpass_url(),
+                        data={"data": query},
+                        headers={"User-Agent": USER_AGENT},
+                    )
+            except httpx.HTTPError as e:
+                logger.warning(f"Overpass request failed: {type(e).__name__}")
+            else:
+                if resp.status_code == 200:
+                    try:
+                        return resp.json()
+                    except ValueError:
+                        logger.warning("Overpass returned a non-JSON body")
+                        return None
+                logger.warning(f"Overpass returned status {resp.status_code}")
+                if resp.status_code not in RETRYABLE_STATUS:
+                    return None
+
+            if attempt < MAX_OVERPASS_RETRIES:
+                await asyncio.sleep(_retry_after_seconds(resp, attempt))
+    return None
 
 
 async def fetch_pois(bbox_or_center: tuple | list, category: str, limit: int = 30) -> list[Candidate]:
