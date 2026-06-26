@@ -1,16 +1,21 @@
-"""Fixed golden set of request scenarios for offline eval (task E1).
+"""Offline eval package for the planning pipeline.
 
-This package owns `golden_set.json`, a hand-curated, committed set of travel-request scenarios that
-later eval tooling (E2/E3/E4) runs the pipeline against. It is data plus this loader only; no scoring
-lives here. See README.md for the scenario schema and the `must_not_violate` rule vocabulary.
+`golden_set.json` is a hand-curated, committed set of travel-request scenarios that the eval tooling
+runs the pipeline against; this module loads it. `scorers.py` holds the deterministic, no-LLM scorers
+and `score_run`, which turn a finished run plus its scenario into one scorecard row. See README.md for
+the scenario schema and the `must_not_violate` rule vocabulary.
 """
 
 import json
 from pathlib import Path
 
+from .scorers import score_run
+
 _GOLDEN_SET_PATH = Path(__file__).parent / "golden_set.json"
 
 REQUIRED_KEYS = ("id", "messages", "expected", "must_not_violate")
+
+__all__ = ["load_golden_set", "score_run"]
 
 
 def load_golden_set() -> list[dict]:
