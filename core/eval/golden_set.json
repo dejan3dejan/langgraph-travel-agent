@@ -1,0 +1,531 @@
+[
+  {
+    "id": "gs_kyoto_3d_cultural",
+    "messages": [
+      "Plan a 3 day cultural trip to Kyoto, mid budget, temples and food, I have a hotel, flying from Seoul. Plan it now."
+    ],
+    "expected": {
+      "destination": "Kyoto",
+      "duration_days": 3,
+      "start_location": "Seoul",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_bali_7d_relax",
+    "messages": [
+      "Plan a 7 day relaxation trip to Bali, I need a hotel, beaches and spas, flying from Sydney. Plan it now."
+    ],
+    "expected": {
+      "destination": "Bali",
+      "duration_days": 7,
+      "start_location": "Sydney",
+      "needs_accommodation": true,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_vienna_2d_romantic",
+    "messages": [
+      "Plan a 2 day romantic weekend in Vienna, I have a hotel, music and cafes, from Berlin. Plan it now."
+    ],
+    "expected": {
+      "destination": "Vienna",
+      "duration_days": 2,
+      "start_location": "Berlin",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_patagonia_10d_adventure",
+    "messages": [
+      "Plan a 10 day adventure trip to Patagonia, I need a hotel, hiking and glaciers, from Buenos Aires. Plan it now."
+    ],
+    "expected": {
+      "destination": "Patagonia",
+      "duration_days": 10,
+      "start_location": "Buenos Aires",
+      "needs_accommodation": true,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_tbilisi_3d_obscure",
+    "messages": [
+      "Plan a 3 day trip to Tbilisi, Georgia, I need a hotel, wine and history, from Istanbul. Plan it now."
+    ],
+    "expected": {
+      "destination": "Tbilisi",
+      "duration_days": 3,
+      "start_location": "Istanbul",
+      "needs_accommodation": true,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_florence_2d_art",
+    "messages": [
+      "Plan a 2 day trip to Florence, medium budget, I love art and food, I have a hotel, flying from Milan"
+    ],
+    "expected": {
+      "destination": "Florence",
+      "duration_days": 2,
+      "start_location": "Milan",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_lisbon_4d_shellfish_allergy",
+    "messages": [
+      "Plan a 4 day food trip to Lisbon, I have a hotel, I'm allergic to shellfish, from Madrid. Plan it now."
+    ],
+    "expected": {
+      "destination": "Lisbon",
+      "duration_days": 4,
+      "start_location": "Madrid",
+      "needs_accommodation": false,
+      "hard_constraints": ["allergic to shellfish"],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "hard_constraints_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_istanbul_3d_halal",
+    "messages": [
+      "Plan a 3 day trip to Istanbul, I need a hotel, I keep halal, history and food, from London. Plan it now."
+    ],
+    "expected": {
+      "destination": "Istanbul",
+      "duration_days": 3,
+      "start_location": "London",
+      "needs_accommodation": true,
+      "hard_constraints": ["halal"],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "hard_constraints_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_amsterdam_5d_wheelchair",
+    "messages": [
+      "Plan a 5 day trip to Amsterdam, I have a hotel, wheelchair accessible, museums, from Paris. Plan it now."
+    ],
+    "expected": {
+      "destination": "Amsterdam",
+      "duration_days": 5,
+      "start_location": "Paris",
+      "needs_accommodation": false,
+      "hard_constraints": ["wheelchair accessible"],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "hard_constraints_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_bangkok_4d_vegetarian",
+    "messages": [
+      "Plan a 4 day trip to Bangkok, I need a hotel, street food and temples, from Tokyo.",
+      "I'm strictly vegetarian, that's all. Plan it now."
+    ],
+    "expected": {
+      "destination": "Bangkok",
+      "duration_days": 4,
+      "start_location": "Tokyo",
+      "needs_accommodation": true,
+      "hard_constraints": ["vegetarian"],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "hard_constraints_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_charlotte_wisconsin_pets_no_flights",
+    "messages": [
+      "Plan a 5 day trip for 2 from Charlotte visiting 2 cities in Wisconsin, March 18 to March 22 2022, budget $2500. We travel with a dog so accommodations must allow pets and be private rooms, and please no flights."
+    ],
+    "expected": {
+      "destination": "Wisconsin",
+      "duration_days": 5,
+      "start_location": "Charlotte",
+      "needs_accommodation": true,
+      "hard_constraints": ["pet friendly accommodation", "private rooms", "no flights"],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "hard_constraints_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_houston_pensacola_smoking_no_fly",
+    "messages": [
+      "Plan a 3 day trip from Houston to Pensacola, March 12 to 14 2022, for 2 people, budget $1100. Accommodations must permit smoking and be non-shared rooms, and our transport is not flight-based."
+    ],
+    "expected": {
+      "destination": "Pensacola",
+      "duration_days": 3,
+      "start_location": "Houston",
+      "needs_accommodation": true,
+      "hard_constraints": ["smoking-friendly accommodation", "non-shared rooms", "no flights"],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "hard_constraints_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_multi_barcelona_lisbon",
+    "messages": [
+      "Plan a two-stop trip: Barcelona for 4 days then Lisbon for 7 days, I need a hotel in both, architecture and food, flying from Paris. Plan it now."
+    ],
+    "expected": {
+      "destination": "Barcelona",
+      "destinations": ["Barcelona", "Lisbon"],
+      "duration_days": 11,
+      "legs": [
+        {"destination": "Barcelona", "days": 4},
+        {"destination": "Lisbon", "days": 7}
+      ],
+      "start_location": "Paris",
+      "needs_accommodation": true,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "all_destinations_covered",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_multi_tokyo_kyoto",
+    "messages": [
+      "Plan a trip with Tokyo for 3 days and Kyoto for 2 days, I need hotels, food and culture, flying from Singapore. Plan it now."
+    ],
+    "expected": {
+      "destination": "Tokyo",
+      "destinations": ["Tokyo", "Kyoto"],
+      "duration_days": 5,
+      "legs": [
+        {"destination": "Tokyo", "days": 3},
+        {"destination": "Kyoto", "days": 2}
+      ],
+      "start_location": "Singapore",
+      "needs_accommodation": true,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "all_destinations_covered",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_already_in_rome",
+    "messages": [
+      "I'm already in Rome for the next 2 days and I want food and sights. Plan it now."
+    ],
+    "expected": {
+      "destination": "Rome",
+      "duration_days": 2,
+      "start_location": "Rome",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_sameday_bruges",
+    "messages": [
+      "Plan a 1 day trip to Bruges, I have a place to stay, walking and beer, from Brussels. Plan it now."
+    ],
+    "expected": {
+      "destination": "Bruges",
+      "duration_days": 1,
+      "start_location": "Brussels",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_lisbon_3d_local_nontouristy",
+    "messages": [
+      "Plan a 3 day trip to Lisbon, I have a hotel, I want the local non-touristy side, neighborhood spots where locals actually go, from Porto. Plan it now."
+    ],
+    "expected": {
+      "destination": "Lisbon",
+      "duration_days": 3,
+      "start_location": "Porto",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_refuse_fictional_gotham",
+    "messages": [
+      "Plan a 3 day trip to Gotham City, I need a hotel, from Metropolis. Plan it now."
+    ],
+    "expected": {
+      "destination": "Gotham City",
+      "duration_days": 3,
+      "refuse": true,
+      "refuse_reason": "unknown_place"
+    },
+    "must_not_violate": [
+      "must_refuse"
+    ]
+  },
+  {
+    "id": "gs_refuse_offplanet_moon",
+    "messages": [
+      "Plan a 2 day trip to the Moon, medium budget, sightseeing, I have a hotel, from Houston."
+    ],
+    "expected": {
+      "destination": "the Moon",
+      "duration_days": 2,
+      "refuse": true,
+      "refuse_reason": "unknown_place"
+    },
+    "must_not_violate": [
+      "must_refuse"
+    ]
+  },
+  {
+    "id": "gs_refuse_impossible_drive_tokyo",
+    "messages": [
+      "Plan a 1 day trip to Tokyo: I'm in Lisbon and want to drive there and back today. Plan it now."
+    ],
+    "expected": {
+      "destination": "Tokyo",
+      "duration_days": 1,
+      "start_location": "Lisbon",
+      "refuse": true,
+      "refuse_reason": "impossible_logistics"
+    },
+    "must_not_violate": [
+      "must_refuse"
+    ]
+  },
+  {
+    "id": "gs_refuse_200_day_paris",
+    "messages": [
+      "Plan a 200 day trip to Paris, I have a hotel, from London. Plan it now."
+    ],
+    "expected": {
+      "destination": "Paris",
+      "duration_days": 200,
+      "refuse": true,
+      "refuse_reason": "contradictory"
+    },
+    "must_not_violate": [
+      "must_refuse"
+    ]
+  },
+  {
+    "id": "gs_interview_barcelona_then_plan",
+    "messages": [
+      "Plan a trip to Barcelona",
+      "5 days, I have a hotel, architecture and tapas, from Paris. Plan it now."
+    ],
+    "expected": {
+      "destination": "Barcelona",
+      "duration_days": 5,
+      "start_location": "Paris",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_reask_answered_slot",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_interview_origin_asked_once",
+    "messages": [
+      "Plan a 5 day trip to Barcelona, I'm flying from Paris",
+      "architecture and tapas, I have a hotel. Plan it now."
+    ],
+    "expected": {
+      "destination": "Barcelona",
+      "duration_days": 5,
+      "start_location": "Paris",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_reask_answered_slot",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_interview_dribble_no_reask",
+    "messages": [
+      "Plan a trip to Lisbon",
+      "I'm coming from Madrid",
+      "4 days, I have a hotel, I want food and history. Plan it now."
+    ],
+    "expected": {
+      "destination": "Lisbon",
+      "duration_days": 4,
+      "start_location": "Madrid",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_reask_answered_slot",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_interview_switch_destination",
+    "messages": [
+      "Plan a 3 day trip to Paris, I have a hotel, art, from London. Plan it now.",
+      "actually make it Rome instead, 3 days, plan it now"
+    ],
+    "expected": {
+      "destination": "Rome",
+      "duration_days": 3,
+      "start_location": "London",
+      "needs_accommodation": false,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "no_reask_answered_slot",
+      "no_unrequested_lodging",
+      "no_duplicate_venues_across_days"
+    ]
+  },
+  {
+    "id": "gs_marrakech_3d_food_markets",
+    "messages": [
+      "Plan a 3 day trip to Marrakech, medium budget, I love food and markets, I need a hotel, flying from Paris. Plan it now."
+    ],
+    "expected": {
+      "destination": "Marrakech",
+      "duration_days": 3,
+      "start_location": "Paris",
+      "needs_accommodation": true,
+      "hard_constraints": [],
+      "refuse": false
+    },
+    "must_not_violate": [
+      "destination_honored",
+      "duration_honored",
+      "lodging_present",
+      "no_duplicate_venues_across_days"
+    ]
+  }
+]
