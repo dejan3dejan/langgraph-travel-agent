@@ -1,0 +1,113 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-06-26T08:31:15Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "node",
+      "id": 247439841,
+      "lat": 48.8618492,
+      "lon": 2.3434997,
+      "tags": {
+        "addr:city": "Paris",
+        "addr:street": "Rue Berger",
+        "amenity": "restaurant",
+        "cuisine": "italian;pizza",
+        "name": "Uno",
+        "opening_hours": "Mo-Su 12:00-00:00",
+        "website": "https://unoparis.com/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 247455920,
+      "lat": 48.8658930,
+      "lon": 2.3372573,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Mystery Cuisine",
+        "website": "https://mysterycuisine.fr"
+      }
+    },
+    {
+      "type": "node",
+      "id": 247455923,
+      "lat": 48.8615239,
+      "lon": 2.3440891,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "french",
+        "name": "Chez Denise",
+        "opening_hours": "Mo-Su 12:00-24:00; Mo-Su 00:00-02:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 251652822,
+      "lat": 48.8556694,
+      "lon": 2.3399888,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "indian",
+        "name": "Desi Road"
+      }
+    },
+    {
+      "type": "node",
+      "id": 247435032,
+      "lat": 48.8611819,
+      "lon": 2.3436118,
+      "tags": {
+        "contact:street": "Rue Saint-Honoré",
+        "contact:website": "https://www.hotelsthonore.com",
+        "name": "Hôtel Saint-Honoré",
+        "stars": "3",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 247436637,
+      "lat": 48.8629098,
+      "lon": 2.3381793,
+      "tags": {
+        "name": "Hôtel Louvre Bon Enfants",
+        "stars": "3",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 411633545,
+      "lat": 48.8616330,
+      "lon": 2.3340447,
+      "tags": {
+        "name": "Place du Carrousel",
+        "name:en": "Carousel Square",
+        "tourism": "attraction",
+        "wikidata": "Q2723969"
+      }
+    },
+    {
+      "type": "way",
+      "id": 19856722,
+      "center": {
+        "lat": 48.8628167,
+        "lon": 2.3428183
+      },
+      "tags": {
+        "addr:street": "Rue de Viarmes",
+        "contact:website": "https://www.boursedecommerce.fr",
+        "museum": "art",
+        "name": "Bourse de Commerce",
+        "official_name": "Bourse de Commerce — Pinault Collection",
+        "operator": "Pinault Collection",
+        "tourism": "museum",
+        "wikidata": "Q691375"
+      }
+    }
+  ]
+}
