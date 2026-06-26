@@ -226,8 +226,9 @@ async def fetch_pois(bbox_or_center: tuple | list, category: str, limit: int = 3
 
     `bbox_or_center` is (lat, lon), (lat, lon, radius_m), or (south, west, north, east). Returns up
     to `limit` Candidates with valid coordinates. A failed request or a genuinely empty area yields
-    [] (logged), never an invented place. Results are cached per exact query for CACHE_TTL_SECONDS,
-    so repeated lookups stay polite to the shared API.
+    [] (logged), never an invented place. A successful result (including a genuinely empty one) is
+    cached per exact query for CACHE_TTL_SECONDS, so repeated lookups stay polite to the shared API; a
+    failed request is not cached, so a transient throttle is retried on the next call.
     """
     query = build_overpass_query(bbox_or_center, category, limit)
 
@@ -237,10 +238,14 @@ async def fetch_pois(bbox_or_center: tuple | list, category: str, limit: int = 3
 
     payload = await _post_overpass(query)
     if payload is None:
+        # A failed request (network/HTTP/decode) is a transient blip, not evidence the area is empty.
+        # Return [] without caching so the next call retries, rather than sticking [] for 24h and
+        # suppressing a whole category after one throttle.
         return []
 
     candidates = parse_overpass(payload)
     if not candidates:
         logger.info(f"Overpass returned no usable {category} places for area={bbox_or_center}; returning []")
+    # Only a present payload is cached: a genuinely empty area legitimately caches [].
     _cache_set(query, candidates)
     return candidates

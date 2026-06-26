@@ -184,6 +184,37 @@ async def test_fetch_pois_returns_empty_on_failed_request(monkeypatch):
     assert out == []
 
 
+async def test_fetch_pois_does_not_cache_failed_request(monkeypatch):
+    # A None payload is a transient failure (throttle/timeout), not a verdict that the area is empty.
+    # It must not stick in the cache: the next call has to re-hit _post_overpass.
+    calls = {"n": 0}
+
+    async def _fake_post(query):
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr(places, "_post_overpass", _fake_post)
+    first = await fetch_pois((48.86, 2.34), "restaurants")
+    second = await fetch_pois((48.86, 2.34), "restaurants")
+    assert first == [] and second == []
+    assert calls["n"] == 2  # failure was retried, not served from a cached []
+
+
+async def test_fetch_pois_caches_empty_but_valid_response(monkeypatch):
+    # A present-but-empty payload is a genuine "nothing here" answer and is cached like any result.
+    calls = {"n": 0}
+
+    async def _fake_post(query):
+        calls["n"] += 1
+        return {"elements": []}
+
+    monkeypatch.setattr(places, "_post_overpass", _fake_post)
+    first = await fetch_pois((48.86, 2.34), "restaurants")
+    second = await fetch_pois((48.86, 2.34), "restaurants")
+    assert first == [] and second == []
+    assert calls["n"] == 1  # second lookup served from cache
+
+
 async def test_fetch_pois_caches_per_query(monkeypatch):
     calls = {"n": 0}
 
