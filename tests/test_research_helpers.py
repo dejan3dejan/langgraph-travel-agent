@@ -9,9 +9,13 @@ from core.nodes.research import (
     _get_destinations,
     _local_focus_block,
     _personalization_suffix,
+    _poi_category,
+    _reconcile_selection,
+    _render_candidates,
     _should_refresh,
     _wants_local,
 )
+from core.places import Candidate
 from core.schemas import Restaurant
 
 
@@ -58,17 +62,83 @@ def test_get_activity_focus_fallback():
     assert _get_activity_focus("", "whatever", "") == "general sightseeing"
 
 
-# research breadth: enough places that multi-day trips have something to pin on each day
+# retrieve-then-generate: the prompt presents the real candidate list and forbids inventing places
 
 
-def test_search_prompt_requests_several_activities():
-    p = _build_search_prompt("activities", "Tokyo", {"trip_type": "family", "interests": "food"})
-    assert "8 REAL" in p
+def _candidate(name, category="restaurants", **kw):
+    return Candidate(name=name, lat=kw.pop("lat", 48.86), lon=kw.pop("lon", 2.34), category=category, **kw)
 
 
-def test_search_prompt_requests_several_restaurants():
-    p = _build_search_prompt("restaurants", "Tokyo", {"age_range": "adults", "budget": "Medium"})
-    assert "6 REAL" in p
+def test_poi_category_maps_research_to_places_categories():
+    assert _poi_category("restaurants") == "restaurants"
+    assert _poi_category("hotels") == "hotels"
+    # the planner calls them activities; OSM tags them attractions (+ museums)
+    assert _poi_category("activities") == "attractions"
+
+
+def test_render_candidates_numbers_names_and_hints():
+    block = _render_candidates([_candidate("Uno", cuisine="italian;pizza", website="https://u"), _candidate("Desi")])
+    assert "1. Uno" in block
+    assert "2. Desi" in block
+    assert "italian;pizza" in block
+
+
+def test_search_prompt_lists_candidates_and_select_count():
+    candidates = [_candidate(f"Place {i}") for i in range(5)]
+    p = _build_search_prompt("restaurants", "Tokyo", {"age_range": "adults", "budget": "Medium"}, candidates)
+    assert "Place 0" in p and "Place 4" in p
+    assert "6" in p  # asks the model to select up to the configured count
+
+
+def test_search_prompt_forbids_inventing_places():
+    candidates = [_candidate("Sushi Sho", category="restaurants")]
+    p = _build_search_prompt("activities", "Tokyo", {"interests": "food"}, candidates).lower()
+    # the prompt must steer toward selecting from the list, not inventing from model knowledge
+    assert "only" in p
+    assert "invent" in p or "not in the list" in p
+
+
+def test_search_prompt_handles_empty_candidate_list():
+    # degrade gracefully: no candidates still produces a valid (if empty) prompt rather than crashing
+    p = _build_search_prompt("hotels", "Nowheresville", {"budget": "Low"}, [])
+    assert "Nowheresville" in p
+
+
+# reconcile selection: keep only places that match a real candidate, attach authoritative coords
+
+
+def test_reconcile_keeps_only_matching_and_attaches_coords():
+    candidates = [_candidate("Trattoria Vecchia", lat=41.9, lon=12.5, website="https://tv.example")]
+    selected = [
+        _restaurant("Trattoria Vecchia", "via Roma 1, Rome"),
+        _restaurant("Invented Bistro", "999 Fake St, Rome"),
+    ]
+    kept = _reconcile_selection(selected, candidates)
+    assert [r.name for r in kept] == ["Trattoria Vecchia"]
+    assert kept[0].lat == 41.9 and kept[0].lon == 12.5
+    assert kept[0].geocoding_status == "exact"
+    assert kept[0].website == "https://tv.example"
+
+
+def test_reconcile_matches_loosely_on_name():
+    candidates = [_candidate("The Louvre", category="attractions", lat=48.86, lon=2.33)]
+    selected = [_restaurant("Louvre", "Rue de Rivoli, Paris")]
+    kept = _reconcile_selection(selected, candidates)
+    assert len(kept) == 1
+    assert kept[0].lat == 48.86
+
+
+def test_reconcile_uses_each_candidate_at_most_once():
+    candidates = [_candidate("Cafe Central", lat=48.2, lon=16.3)]
+    selected = [_restaurant("Cafe Central", "addr 1"), _restaurant("Cafe Central", "addr 2")]
+    kept = _reconcile_selection(selected, candidates)
+    assert len(kept) == 1
+
+
+def test_reconcile_empty_when_nothing_matches():
+    candidates = [_candidate("Real Place")]
+    selected = [_restaurant("Totally Made Up", "nowhere")]
+    assert _reconcile_selection(selected, candidates) == []
 
 
 # regenerate refresh: rebuild food and activities live, keep the stable hotel pool cached
