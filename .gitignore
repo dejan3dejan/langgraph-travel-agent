@@ -58,6 +58,7 @@ Thumbs.db
 # Project Specific
 tests/benchmark_results.json
 tests/HUMAN_REVIEW_REPORT.md
+core/eval/reports/
 
 # Documentation & Support
 # The docs/ tree holds private working notes; only the public how-it-works pages
