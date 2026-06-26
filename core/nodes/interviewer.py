@@ -730,7 +730,7 @@ async def interviewer_node(state: AgentState) -> dict:
 
     # If the destination changed from a prior run (only possible with a checkpointer),
     # reset research data. Harmless no-op in the current stateless setup.
-    old_dest = state.get("user_details", {}).get("destination")
+    old_dest = (state.get("user_details") or {}).get("destination")
     new_dest = user_details.get("destination")
     if old_dest and old_dest != new_dest:
         logger.info(f"Destination changed from {old_dest} to {new_dest}. Resetting research data.")

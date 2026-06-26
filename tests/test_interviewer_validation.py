@@ -150,6 +150,18 @@ async def test_node_honors_plan_it_now(monkeypatch):
     assert result["next_node"] == "research"
 
 
+async def test_node_plans_when_user_details_is_explicit_none(monkeypatch):
+    # First-turn one-shot: the orchestrator threads user_details=None (no prior turn persisted it).
+    # The destination-change reset block must treat a None state as "no prior destination" rather
+    # than calling .get on None, which crashed every first-turn plan in the live stream.
+    monkeypatch.setattr(iv, "get_llm_for_role", lambda role: _Fake(_ready()))
+    monkeypatch.setattr(iv, "_check_feasibility", _feas(True))
+    result = await interviewer_node(
+        {"messages": [{"role": "user", "content": "3 day trip to Paris, plan it now"}], "user_details": None}
+    )
+    assert result["next_node"] == "research"
+
+
 async def test_node_plans_at_turn_budget_even_with_short_window(monkeypatch):
     # The loop bug: user_turns was counted from the TRIMMED replay window, so the backstop never
     # fired and a never-answered soft slot (here origin) was re-asked forever. The true count is
